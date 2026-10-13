@@ -158,3 +158,53 @@ Mistakes I made and what they taught me:
 
 Takeaway: tests passed after step 1, but pyright still found a real bug. Each
 quality gate catches a different class of problem.
+
+---
+
+## 2026-10-13: Coordinated omission
+
+**Question:** a service normally answers in 5 ms and freezes for 2 s during a 10 s
+test. One worker sends, waits for the answer, then sends again (target 10 req/s).
+How many requests, how many slow, and what p95 does the tool report? How many
+real users (arriving every 100 ms independently) would see a slow response?
+
+- *My answers:* ~80 requests, 1 slow, p95 close to 5 ms, 20 % of real users.
+  **All correct.**
+
+That is **coordinated omission**: a closed-loop client coordinates with the system
+under test. It stops sending exactly while the system is slow, so the worst samples
+are never taken. Real users do not wait for each other.
+
+Fix (open model): schedule request *i* at `start + i / rate` regardless of
+responses, send each as an independent task, and measure latency from the
+**scheduled** time, so a late generator cannot hide delay either. Track send lag to
+detect a saturated generator. Never wait for a free slot; record it as dropped.
+
+Measured on the real lab (20 req/s for 10 s, `docker pause inventory` for 2 s
+starting at 4 s):
+
+| | requests sent | errors | p95 |
+|---|---|---|---|
+| Naive closed-loop client | 152 of 200 | 1 | **11.4 ms** |
+| `chaosnet.loadgen` (open model) | 200 of 200 | 12 | **1514.6 ms** (all), 1079.5 ms (ok) |
+
+The same freeze was reported as ~130x better by the naive client.
+
+---
+
+## 2026-10-13: Writing `percentile` (nearest rank)
+
+Mistakes I made:
+
+1. **Missing `import math`.** All tests failed with the same `NameError`, which hid
+   every other bug. Read the `E` lines of the test output; fix the first error,
+   rerun, read the next one.
+2. **Rank vs. index.** Ranks are 1-based, list indices are 0-based, so index =
+   rank - 1. Without it, p100 raises `IndexError` and everything else is off by one.
+3. **Float rounding.** `14 / 100 * 100` is `14.000000000000002`, and `ceil` turns it
+   into 15. In my words: multiply first, because then you multiply whole numbers.
+   More precisely, products of integers are exact in a float (up to 2^53), so only
+   the final division rounds, once; dividing first creates an inexact intermediate
+   that the multiplication then amplifies. I first wanted an epsilon tolerance; it
+   would work, but the threshold is a magic number and it hides the cause instead of
+   removing it.
