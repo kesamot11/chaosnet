@@ -138,3 +138,13 @@ def test_retries_are_configurable_without_rebuild() -> None:
     finally:
         unpause("inventory")
         compose("up", "-d", "--wait", "--no-build", "orders")
+
+
+def test_proxies_survive_a_toxiproxy_restart() -> None:
+    # A plain restart forgets proxies (#12); the config file must recreate them.
+    compose("restart", "toxiproxy")
+    compose("up", "-d", "--wait", "toxiproxy")
+    proxies = httpx.get("http://127.0.0.1:18474/proxies", timeout=5).json()
+    assert set(proxies) == {"gateway-orders", "orders-inventory"}
+    res, _ = order()
+    assert res.status_code == 200

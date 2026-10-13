@@ -105,3 +105,26 @@ on max. Revisit if an experiment cares about effects below ~50 ms in the tail.
 - Emulated network inside one VM: no physical links, so these numbers say
   nothing about real network latency.
 - One request type, constant rate, warm caches; no bursts.
+
+### EXP-001b: baseline with Toxiproxy in the path (#30)
+
+**Question:** how much latency do the two proxy hops (gateway→Toxiproxy→orders,
+orders→Toxiproxy→inventory, no toxics) add to the healthy baseline?
+
+**Method:** same as EXP-001 from the Mac (warm-up + 5 runs, 50 req/s × 30 s), same
+day, lab freshly restarted with Toxiproxy 2.12.0 in the path.
+
+| | p50 | p95 | p99 | max |
+|---|---|---|---|---|
+| EXP-001, no proxy | 4.86 [4.63 – 5.19] | 10.50 [10.06 – 11.36] | 12.23 [11.90 – 17.07] | 39.48 [36.21 – 91.40] |
+| with proxy | 4.79 [4.69 – 4.96] | 11.10 [10.56 – 11.56] | 12.41 [11.99 – 12.79] | 39.02 [38.53 – 39.83] |
+
+All 7500 requests `ok`. Generator send lag max ≤ 10.3 ms.
+
+**Interpretation:** no measurable overhead. Every percentile with the proxy lies
+inside the run-to-run spread of EXP-001. The proxy cost is smaller than the noise
+of this setup; EXP-001b is the baseline for fault experiments from now on.
+
+**Limitations:** the two baselines were measured about an hour apart, not
+interleaved, so slow drift of the machine would be indistinguishable from a small
+proxy effect.
