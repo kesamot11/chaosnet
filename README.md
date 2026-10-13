@@ -49,4 +49,12 @@ Per-hop timeouts and retries are environment variables (see `lab/compose.yaml`),
 e.g. `ORDERS_MAX_RETRIES=0 docker compose up -d --wait`. Set `GATEWAY_PORT` if 8080
 is taken.
 
+Generate load against it (open model, so a slow lab cannot hide its latency):
+
+```bash
+cd backend
+uv run python -m chaosnet.loadgen http://localhost:8080/orders --rate 20 --duration 10 \
+    --body '{"item_id": "42"}'
+```
+
 `make integration` runs the acceptance tests against a real Compose lab (needs Docker).
