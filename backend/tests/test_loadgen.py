@@ -104,8 +104,8 @@ def test_requests_beyond_max_in_flight_are_dropped_not_delayed() -> None:
     assert max(s.send_lag_s for s in samples) < 0.02
 
 
-def test_invalid_parameters_rejected() -> None:
-    with pytest.raises(ValueError):
+def test_invalid_parameters_rejected_with_actual_values() -> None:
+    with pytest.raises(ValueError, match=r"rate=0, duration_s=1"):
         load(slow(0), rate=0, duration_s=1)
 
 

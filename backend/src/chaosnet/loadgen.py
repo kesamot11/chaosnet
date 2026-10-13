@@ -50,7 +50,10 @@ async def run_load(
     coordinated omission.
     """
     if rate <= 0 or duration_s <= 0 or timeout_s <= 0 or max_in_flight < 1:
-        raise ValueError("rate, duration_s and timeout_s must be > 0, max_in_flight >= 1")
+        raise ValueError(
+            "rate, duration_s and timeout_s must be > 0 and max_in_flight >= 1, got "
+            f"{rate=}, {duration_s=}, {timeout_s=}, {max_in_flight=}"
+        )
 
     samples: list[Sample] = []
     tasks: set[asyncio.Task[None]] = set()
