@@ -174,3 +174,19 @@ def test_get_recovers_after_a_cut() -> None:
     call, fake = run([cut_after_send(), 200], max_retries=2, method="GET")
     assert call().status_code == 200
     assert len(fake.requests) == 2
+
+
+def test_post_read_timeout_is_not_retried() -> None:
+    # The request was sent; the server may still be processing it.
+    call, fake = run([timed_out(), 200], max_retries=2, method="POST")
+    with pytest.raises(DownstreamError) as exc:
+        call()
+    assert exc.value.status_code == 504
+    assert len(fake.requests) == 1
+
+
+def test_post_connect_timeout_is_still_retried() -> None:
+    # The connection never opened, so the request was never sent: safe to retry.
+    call, fake = run([httpx.ConnectTimeout("timed out"), 200], max_retries=2, method="POST")
+    assert call().status_code == 200
+    assert len(fake.requests) == 2
