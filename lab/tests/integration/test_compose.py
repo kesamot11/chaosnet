@@ -18,11 +18,12 @@ pytestmark = pytest.mark.integration
 
 LAB_DIR = Path(__file__).parents[2]
 PORT = "18080"
+TOXIPROXY_PORT = "18474"
 ENV = {
     **os.environ,
     "COMPOSE_PROJECT_NAME": "chaosnet-lab-test",
     "GATEWAY_PORT": PORT,
-    "TOXIPROXY_PORT": "18474",
+    "TOXIPROXY_PORT": TOXIPROXY_PORT,
 }
 # orders->inventory defaults from compose.yaml: 0.5 s timeout, 2 retries
 ORDERS_BUDGET_S = (2 + 1) * 0.5
@@ -144,7 +145,7 @@ def test_proxies_survive_a_toxiproxy_restart() -> None:
     # A plain restart forgets proxies (#12); the config file must recreate them.
     compose("restart", "toxiproxy")
     compose("up", "-d", "--wait", "toxiproxy")
-    proxies = httpx.get("http://127.0.0.1:18474/proxies", timeout=5).json()
+    proxies = httpx.get(f"http://127.0.0.1:{TOXIPROXY_PORT}/proxies", timeout=5).json()
     assert set(proxies) == {"gateway-orders", "orders-inventory"}
     res, _ = order()
     assert res.status_code == 200
