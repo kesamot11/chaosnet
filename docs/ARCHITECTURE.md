@@ -1,7 +1,90 @@
 # Architecture
 
-> The component overview, request flow and diagrams are added in #16. This file
-> currently only records verified assumptions about the execution environment.
+This document describes what exists **today**. Planned components are marked as
+planned and link to the decision that introduced them.
+
+## Overview
+
+ChaosNet runs entirely on one machine (ADR-002: local-first). It has two halves:
+
+- **Data plane: the lab.** A small distributed system that real requests flow
+  through and that experiments disrupt. Today: `gateway -> orders -> inventory`,
+  three FastAPI services in Docker Compose (`lab/`).
+- **Control plane.** Decides what runs and measures it, but never carries lab
+  traffic itself. Today it consists only of the open-model load generator
+  (`backend/src/chaosnet/loadgen.py`). The experiment controller, fault injection
+  and cleanup layers are planned (ADR-001, milestones M2–M3).
+
+```mermaid
+flowchart LR
+    subgraph mac["macOS host"]
+        lg["chaosnet.loadgen<br/>(control plane)"]
+    end
+    subgraph vm["Docker Desktop Linux VM"]
+        subgraph net["bridge network chaosnet-lab_default"]
+            gw["gateway :8000"]
+            or["orders :8000"]
+            inv["inventory :8000"]
+        end
+    end
+    lg -- "POST /orders<br/>127.0.0.1:8080 (only published port)" --> gw
+    gw -- "POST /orders<br/>timeout 2.0 s, 1 retry" --> or
+    or -- "GET /items/{id}<br/>timeout 0.5 s, 2 retries" --> inv
+```
+
+## Components
+
+| Component | Code | Responsibility |
+|---|---|---|
+| gateway | `lab/src/chaosnet_lab/gateway.py` | Single entry point. Forwards orders to `orders`. |
+| orders | `lab/src/chaosnet_lab/orders.py` | Looks the item up in `inventory`. |
+| inventory | `lab/src/chaosnet_lab/inventory.py` | Leaf service; items in memory. |
+| `call_downstream` | `lab/src/chaosnet_lab/client.py` | Per-attempt timeout, retries on transport failure, 503/504 classification. Shared by gateway and orders. |
+| `relay`, `Hop` | `lab/src/chaosnet_lab/relay.py` | Hop config from env (validated at startup), error mapping, `path` propagation. |
+| load generator | `backend/src/chaosnet/loadgen.py` | Open-model load at a fixed rate; latency from scheduled send time; JSON report. |
+| `percentile` | `backend/src/chaosnet/stats.py` | Nearest-rank percentiles for reports. |
+
+All three services are built from **one image** and differ only in their start
+command and environment. Distribution is a property of the running system (three
+processes, three network namespaces, independent failures), not of how the code is
+organised.
+
+## Request flow
+
+1. The load generator sends `POST /orders {"item_id": "42"}` to `127.0.0.1:8080`.
+   Docker Desktop forwards it into the VM to `gateway:8000`.
+2. `gateway` calls `orders` at `http://orders:8000`. The name is resolved by
+   Docker's embedded DNS (`127.0.0.11`), then ARP finds the MAC on the bridge.
+3. `orders` calls `GET /items/42` on `http://inventory:8000`.
+4. `inventory` answers with the item and `"path": ["inventory"]`; each service on
+   the way back prepends its name, so the client receives
+   `"path": ["gateway", "orders", "inventory"]`.
+
+Failure handling per hop (`call_downstream`):
+
+| What happens downstream | Seen by the caller | Response |
+|---|---|---|
+| answers with any HTTP status (200, 404, 503...) | response | passed through unchanged, no retry |
+| container stopped (name no longer resolves) or nothing listening | `ConnectError` | retried; then **503** with `failed_hop` |
+| process frozen or too slow | `TimeoutException` | retried; then **504** with `failed_hop` |
+
+A caller's timeout must exceed the callee's whole retry budget,
+`(retries + 1) × timeout`, otherwise the caller gives up first, retries
+(multiplying load downstream) and blames the wrong hop. With the defaults:
+orders→inventory budget 1.5 s < gateway→orders timeout 2.0 s.
+
+## Networking rules
+
+- Only the gateway is published, and only on `127.0.0.1`. Every request enters
+  through the path where faults will be injected; nothing can bypass it.
+- The control plane reaches the lab only through published ports and the Docker
+  API, never through container IPs (unreachable from macOS, see below).
+- Services address each other by Compose service name, never by IP.
+
+## Decisions
+
+See [DECISIONS.md](DECISIONS.md): ADR-001 (control plane structure and fault
+cleanup), ADR-002 (local-first execution).
 
 ## Verified environment assumptions
 
