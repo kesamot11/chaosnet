@@ -1,5 +1,6 @@
 """Summary statistics for latency samples."""
 
+import math
 from collections.abc import Sequence
 
 
@@ -17,4 +18,10 @@ def percentile(samples: Sequence[float], p: float) -> float:
     Useful: ``sorted(...)``, ``math.ceil(...)``. Python lists are 0-indexed, ranks are 1-based.
     Careful: floats are not exact (try ``14 / 100 * 100`` in a Python shell).
     """
-    raise NotImplementedError("Tomáš: implement me, then run `uv run pytest` in backend/")
+    if p <= 0 or p > 100:
+        raise ValueError(f"p must be in the range 0 < p <= 100, got {p}")
+    if len(samples) == 0:
+        raise ValueError("samples must not be empty")
+    n = len(samples)
+    samples_sorted = sorted(samples)
+    return samples_sorted[math.ceil((n * p) / 100) - 1]
