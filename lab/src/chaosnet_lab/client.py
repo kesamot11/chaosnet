@@ -41,4 +41,14 @@ async def call_downstream(
     - ``await client.request(method, url, json=json, timeout=timeout_s)``
     - ``try: ... except httpx.ConnectError: ... except httpx.TimeoutException: ...``
     """
-    raise NotImplementedError("Tomáš: implement me, then run `uv run pytest` in lab/")
+    code = None
+    for _ in range(max_retries + 1):
+        try:
+            res = await client.request(method, url, json=json, timeout=timeout_s)
+            return res
+        except httpx.ConnectError:
+            code = 503
+        except httpx.TimeoutException:
+            code = 504
+
+    raise DownstreamError(code, hop)
