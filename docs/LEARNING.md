@@ -208,3 +208,33 @@ Mistakes I made:
    that the multiplication then amplifies. I first wanted an epsilon tolerance; it
    would work, but the threshold is a magic number and it hides the cause instead of
    removing it.
+
+---
+
+## 2026-10-13: Proxies, cut connections and idempotent retries
+
+Adding Toxiproxy between services changed how "inventory is stopped" looks to
+`orders`: it now connects successfully (to the proxy), sends the request, and only
+then the proxy cuts the connection. `httpx.ReadError` instead of `ConnectError`,
+which my `call_downstream` did not handle, so users got 500 instead of 503.
+Predicted before running the tests (except for the exact exception name).
+
+**Question:** the request is "pay 1000 CZK" and you get ReadError. Is it safe to
+retry automatically?
+
+- *My answer:* no, you could pay more than 1000 CZK. **Correct.**
+
+**Idempotent** = repeating has the same effect as doing it once. GET (read) is,
+POST (pay, create order) is not.
+
+**Question:** does the same apply to a timeout?
+
+- *My answer:* yes, do not resend if not GET. **Right, with one exception:**
+  `ConnectTimeout` means the connection never opened, so the request was never
+  sent and a retry is safe.
+
+The one question that decides it: **was the request already sent?**
+Not sent → always retry. Maybe processed → retry only idempotent methods.
+
+Also learned: Python picks the **first** matching `except`, so the more specific
+`ConnectTimeout` must come before its parent `TimeoutException`.
