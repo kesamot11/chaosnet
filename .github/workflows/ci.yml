@@ -15,6 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Job names are required status checks in the `protect-main` ruleset:
+  # renaming a job blocks every merge until the ruleset is updated.
   backend:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -29,4 +31,18 @@ jobs:
       # --locked fails if uv.lock is out of date with pyproject.toml.
       - run: uv sync --locked
         working-directory: backend
-      - run: make check
+      - run: make check PROJECTS=backend
+
+  lab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.17"
+          enable-cache: true
+          cache-dependency-glob: lab/uv.lock
+      - run: uv sync --locked
+        working-directory: lab
+      - run: make check PROJECTS=lab
