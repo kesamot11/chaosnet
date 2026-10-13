@@ -244,3 +244,31 @@ def test_list_faults_returns_only_chaosnet_faults() -> None:
 
 def test_list_faults_is_empty_on_a_clean_lab() -> None:
     assert run(lambda d: d.list_faults()) == []
+
+
+# --- Toxiproxy itself failing (found in review of #39) --------------------------------
+
+
+def broken(response: httpx.Response) -> FakeToxiproxy:
+    fake = FakeToxiproxy()
+    fake.handle = lambda request: response  # type: ignore[method-assign]
+    return fake
+
+
+def test_list_faults_fails_clearly_when_toxiproxy_errors() -> None:
+    fake = broken(httpx.Response(500, json={"error": "boom", "status": 500}))
+    with pytest.raises(FaultError, match="HTTP 500"):
+        run(lambda d: d.list_faults(), fake)
+
+
+def test_add_fails_clearly_when_error_body_is_not_json() -> None:
+    fake = broken(httpx.Response(502, text="<html>Bad Gateway</html>"))
+    with pytest.raises(FaultError, match=f"{LINK}: HTTP 502"):
+        run(lambda d: d.add_latency(LINK, 100, "request"), fake)
+
+
+def test_remove_fails_clearly_when_error_body_is_not_json() -> None:
+    fake = broken(httpx.Response(500, text="oops"))
+    fault = Fault(LINK, "chaosnet-latency-upstream", "latency", "request", {})
+    with pytest.raises(FaultError, match=f"{LINK}: HTTP 500"):
+        run(lambda d: d.remove(fault), fake)

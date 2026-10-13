@@ -28,7 +28,12 @@ class FaultError(Exception):
 
 
 class FaultDriver:
-    """Talks to one Toxiproxy instance. See tests/test_faults.py for the expected behaviour."""
+    """Talks to one Toxiproxy instance. See tests/test_faults.py for the expected behaviour.
+
+    A link holds at most one fault of each kind per direction (the toxic name is
+    ``chaosnet-{kind}-{stream}``); adding the same one again raises ``FaultError``.
+    Stacking 300 ms on top of 300 ms is not a use case; remove and re-add instead.
+    """
 
     def __init__(self, client: httpx.AsyncClient, api_url: str) -> None:
         self.client = client
@@ -105,6 +110,6 @@ class FaultDriver:
             }
             res = await self.client.post(f"{self.api_url}/proxies/{link}/toxics", json=toxic)
             if res.is_error:
-                raise FaultError(f"{link}: {res.text}")
+                raise FaultError(f"{link}: HTTP {res.status_code} {res.text}")
             faults.append(Fault(link, name, kind, STREAM_TO_DIRECTION[stream], attributes))
         return faults
