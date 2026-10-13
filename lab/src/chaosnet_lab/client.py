@@ -27,19 +27,17 @@ async def call_downstream(
     """Call another service, retrying transport failures.
 
     Rules (tests/test_client.py checks every one):
-    - At most ``max_retries + 1`` attempts in total.
+    - At most ``max_retries + 1`` attempts in total, no sleeping between them (backoff: M6).
     - Every attempt uses ``timeout_s`` as its own timeout (not a total budget).
     - Any HTTP response (200, 404, 500, ...) is returned as-is, without retrying.
       Deciding what a status code means is the caller's job.
-    - ``httpx.ConnectError`` (connection refused, name not resolvable) is retried.
-      If the last attempt failed this way, raise ``DownstreamError(503, hop)``.
-    - ``httpx.TimeoutException`` (no answer in time) is retried.
-      If the last attempt failed this way, raise ``DownstreamError(504, hop)``.
-    - No sleeping between attempts (backoff comes in M6).
 
-    Useful API:
-    - ``await client.request(method, url, json=json, timeout=timeout_s)``
-    - ``try: ... except httpx.ConnectError: ... except httpx.TimeoutException: ...``
+    Transport failures. The key question: was the request already sent?
+    - Not sent (``ConnectError``, ``ConnectTimeout``): always retried.
+    - Maybe processed (``ReadError``, ``RemoteProtocolError``, other timeouts): retried only
+      for GET. Repeating a non-idempotent request (e.g. POST "pay") could apply it twice.
+    - When no attempt is left: timeouts raise ``DownstreamError(504, hop)``, everything
+      else ``DownstreamError(503, hop)``.
     """
     if max_retries < 0:
         raise ValueError(f"max_retries must be >= 0, not {max_retries}")
@@ -50,7 +48,15 @@ async def call_downstream(
             return res
         except httpx.ConnectError:
             code = 503
+        except httpx.ReadError, httpx.RemoteProtocolError:
+            code = 503
+            if method != "GET":
+                break
+        except httpx.ConnectTimeout:
+            code = 504
         except httpx.TimeoutException:
             code = 504
+            if method != "GET":
+                break
 
     raise DownstreamError(code, hop)
