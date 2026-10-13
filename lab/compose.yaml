@@ -21,7 +21,10 @@ services:
     volumes: ["./toxiproxy.json:/config/toxiproxy.json:ro"]
     ports: ["127.0.0.1:${TOXIPROXY_PORT:-8474}:8474"]
     healthcheck:
-      test: ["CMD", "/toxiproxy-cli", "list"]
+      # Checks that the config was loaded, not just that the API answers: a broken
+      # toxiproxy.json loads no proxies at all. One name only (no shell in the image);
+      # the integration tests check that every link works.
+      test: ["CMD", "/toxiproxy-cli", "inspect", "orders-inventory"]
       interval: 2s
       timeout: 2s
       retries: 10
