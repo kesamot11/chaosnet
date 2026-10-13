@@ -41,7 +41,9 @@ async def call_downstream(
     - ``await client.request(method, url, json=json, timeout=timeout_s)``
     - ``try: ... except httpx.ConnectError: ... except httpx.TimeoutException: ...``
     """
-    code = None
+    if max_retries < 0:
+        raise ValueError(f"max_retries must be >= 0, not {max_retries}")
+    code = 503
     for _ in range(max_retries + 1):
         try:
             res = await client.request(method, url, json=json, timeout=timeout_s)
