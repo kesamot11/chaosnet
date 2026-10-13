@@ -20,13 +20,17 @@ class Hop:
     @classmethod
     def from_env(cls, name: str) -> Hop:
         """Read the hop config from the environment and fail fast on bad values."""
+        url = os.environ.get("DOWNSTREAM_URL", "")
+        parsed = httpx.URL(url)
+        if parsed.scheme not in ("http", "https") or not parsed.host:
+            raise ValueError(f"DOWNSTREAM_URL must be http(s)://host[:port], got {url!r}")
         timeout_s = float(os.environ.get("TIMEOUT_S", "0.5"))
         max_retries = int(os.environ.get("MAX_RETRIES", "2"))
         if timeout_s <= 0:
             raise ValueError(f"TIMEOUT_S must be > 0, got {timeout_s}")
         if max_retries < 0:
             raise ValueError(f"MAX_RETRIES must be >= 0, got {max_retries}")
-        return cls(name, os.environ["DOWNSTREAM_URL"], timeout_s, max_retries)
+        return cls(name, url, timeout_s, max_retries)
 
 
 async def relay(
