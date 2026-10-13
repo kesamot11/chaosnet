@@ -78,6 +78,26 @@ Findings:
 This confirms the networking rule: the control plane reaches the lab only
 through published ports and the Docker API, never through container IPs.
 
+### Docker DNS and paused containers
+
+Verified in #13 on the demo lab.
+
+- Services resolve each other through Docker's embedded DNS (`inventory` resolved to
+  `172.18.0.2` from inside `orders`).
+- After `docker stop inventory`, the name no longer resolves at all:
+  `gaierror [Errno -2] Name or service not known`. The caller sees a name
+  resolution failure, not "connection refused", and it fails fast (gateway answered
+  503 in ~10 ms).
+- `docker pause` freezes the processes. Callers get no answer and hang until
+  their timeout (504 after 1.52 s with a 0.5 s timeout and 2 retries). Not yet
+  verified at packet level whether new TCP handshakes still complete (the kernel
+  keeps running) or only pooled keep-alive connections are affected.
+- **A paused container is reported as `unhealthy` immediately**, and stays
+  unhealthy after `docker unpause` until its next successful probe (up to one
+  healthcheck interval). During that window `docker compose up --wait` refuses to
+  start services that depend on it. The control plane must not treat Docker health
+  as ground truth during or right after a pause fault.
+
 ### Not verified yet
 
 - Behaviour under load (all measurements above are five sequential requests).

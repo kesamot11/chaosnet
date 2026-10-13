@@ -99,3 +99,62 @@ directions, so the delays add: 300 + 300 = 600 ms.
 
 **Rule:** RTT = one-way delay there + one-way delay back. Every fault definition
 in ChaosNet must state whether a latency is one-way or round-trip.
+
+---
+
+## 2026-10-13: Netem works per interface, not per link
+
+**Question:** how do you add exactly 200 ms of RTT to `orders -> inventory`?
+
+- *My answer:* Toxiproxy 100 ms; netem 200 ms on one side or 100 ms on both.
+  **Mostly right.** For Toxiproxy it must be 100 ms on *both* streams (or 200 ms on
+  one), and the direction has to be stated explicitly.
+
+The trap I did not see: netem attaches to an **interface**. `orders` has one `eth0`,
+which carries traffic to inventory *and* responses to the gateway. Netem on it
+slows down `gateway <-> orders` too, so the experiment would measure something
+other than what it claims. Toxiproxy works per proxy, which means per link.
+Targeting one link with netem needs `tc` filters by destination or a separate
+Docker network per link. That is why the MVP uses Toxiproxy and netem comes later.
+
+---
+
+## 2026-10-13: Name resolution comes before ARP
+
+**Question:** `docker stop inventory`, then `orders` calls `http://inventory:8000`.
+What error does `orders` get?
+
+- *My answer:* 503 because it is down, not a timeout; the IP is found via ARP.
+  **Status code right, mechanism wrong.**
+
+Order of lookups: **DNS** (name to IP, Docker's embedded server at `127.0.0.11`),
+then **ARP** (IP to MAC on the bridge), then the TCP handshake. A stopped container
+is removed from Docker DNS, so resolution itself fails:
+`Name or service not known` (measured, see ARCHITECTURE.md). "Connection refused"
+would only happen if the container were running but nothing listened on the port
+(the kernel answers the SYN with RST).
+
+---
+
+## 2026-10-13: Writing `call_downstream` (my first function in ChaosNet)
+
+Written test-first: the tests existed and failed before the implementation.
+
+Mistakes I made and what they taught me:
+
+1. **`raise` inside the retry loop.** `raise` ends the whole function, just like
+   `return`, so only one attempt ever happened. Inside the loop you do not yet
+   know whether a failure is final; remember it, and decide after the loop.
+2. **`return null`.** Python has `None`; `null` is Java/JS. And after the loop
+   there should be no return at all, only `raise`.
+3. **"possibly unbound".** If the loop runs zero times (`max_retries = -1`),
+   `code` never gets a value. `code = None` only moved the problem (a status of
+   `None` makes no sense). Fix: **fail fast** on invalid input
+   (`max_retries < 0` raises `ValueError`) plus a typed initial value, because the
+   type checker cannot prove that `range(n)` runs at least once.
+4. **Error message must match the condition:** `0` retries is valid, so the
+   message says `>= 0`, not "larger than 0". Use an f-string, not two arguments
+   to `ValueError`.
+
+Takeaway: tests passed after step 1, but pyright still found a real bug. Each
+quality gate catches a different class of problem.

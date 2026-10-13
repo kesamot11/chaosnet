@@ -32,3 +32,21 @@ make check       # lint, format check, type check, tests
 ```
 
 `make fmt` applies formatting and safe lint fixes.
+
+## Running the demo lab
+
+A small distributed system, `gateway -> orders -> inventory`, that experiments run
+against. Only the gateway is reachable from the host.
+
+```bash
+cd lab
+docker compose up -d --build --wait
+curl -X POST localhost:8080/orders -H 'content-type: application/json' -d '{"item_id": "42"}'
+docker compose down
+```
+
+Per-hop timeouts and retries are environment variables (see `lab/compose.yaml`),
+e.g. `ORDERS_MAX_RETRIES=0 docker compose up -d --wait`. Set `GATEWAY_PORT` if 8080
+is taken.
+
+`make integration` runs the acceptance tests against a real Compose lab (needs Docker).

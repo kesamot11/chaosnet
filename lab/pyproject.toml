@@ -1,0 +1,36 @@
+[project]
+name = "chaosnet-lab"
+version = "0.0.0"
+description = "Demo distributed system that ChaosNet experiments run against"
+requires-python = ">=3.14,<3.15"
+dependencies = [
+    "fastapi>=0.143.0",
+    "httpx>=0.28.1",
+    "uvicorn>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "pyright",
+    "pytest",
+    "ruff",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.17,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pyright]
+include = ["src", "tests"]
+typeCheckingMode = "strict"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers -m 'not integration'"
+markers = ["integration: needs Docker; runs the real Compose lab (make integration)"]
