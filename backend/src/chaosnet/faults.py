@@ -50,7 +50,7 @@ class FaultDriver:
     async def remove(self, fault: Fault) -> None:
         res = await self.client.delete(f"{self.api_url}/proxies/{fault.link}/toxics/{fault.name}")
         if res.is_error and res.status_code != 404:
-            raise FaultError(f"{fault.link}: {res.json()['error']}")
+            raise FaultError(f"{fault.link}: HTTP {res.status_code} {res.text}")
 
     async def remove_all(self) -> None:
         res = await self.client.post(f"{self.api_url}/reset")
@@ -58,6 +58,8 @@ class FaultDriver:
 
     async def list_faults(self) -> list[Fault]:
         res = await self.client.get(f"{self.api_url}/proxies")
+        if res.is_error:
+            raise FaultError(f"listing faults failed: HTTP {res.status_code} {res.text}")
         data = res.json()
         result: list[Fault] = []
         for link, proxy in data.items():
@@ -75,7 +77,7 @@ class FaultDriver:
                 )
         return result
 
-    def get_streams(self, direction: Direction) -> list[str]:
+    def _get_streams(self, direction: Direction) -> list[str]:
         """Translate our direction into Toxiproxy streams (request: client -> server = upstream)."""
         if direction == "request":
             return ["upstream"]
@@ -88,7 +90,7 @@ class FaultDriver:
     async def _add_toxic(
         self, link: str, kind: str, direction: Direction, attributes: dict[str, int]
     ) -> list[Fault]:
-        streams = self.get_streams(direction)
+        streams = self._get_streams(direction)
 
         faults: list[Fault] = []
         for stream in streams:
@@ -103,6 +105,6 @@ class FaultDriver:
             }
             res = await self.client.post(f"{self.api_url}/proxies/{link}/toxics", json=toxic)
             if res.is_error:
-                raise FaultError(f"{link}: {res.json()['error']}")
+                raise FaultError(f"{link}: {res.text}")
             faults.append(Fault(link, name, kind, STREAM_TO_DIRECTION[stream], attributes))
         return faults
