@@ -12,6 +12,22 @@ x-service: &service
     start_interval: 1s
 
 services:
+  # Every link between services goes through its own proxy here, so faults can be
+  # injected per link. Proxies come from toxiproxy.json on every start: a restart
+  # would otherwise forget them (verified in #12).
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    command: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
+    volumes: ["./toxiproxy.json:/config/toxiproxy.json:ro"]
+    ports: ["127.0.0.1:${TOXIPROXY_PORT:-8474}:8474"]
+    healthcheck:
+      test: ["CMD", "/toxiproxy-cli", "list"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+      start_period: 10s
+      start_interval: 1s
+
   inventory:
     <<: *service
     command: ["uvicorn", "chaosnet_lab.inventory:app", "--host", "0.0.0.0", "--port", "8000"]
@@ -20,11 +36,13 @@ services:
     <<: *service
     command: ["uvicorn", "chaosnet_lab.orders:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
-      DOWNSTREAM_URL: http://inventory:8000
+      DOWNSTREAM_URL: http://toxiproxy:8666  # proxy "orders-inventory"
       TIMEOUT_S: ${ORDERS_TIMEOUT_S:-0.5}
       MAX_RETRIES: ${ORDERS_MAX_RETRIES:-2}
     depends_on:
       inventory:
+        condition: service_healthy
+      toxiproxy:
         condition: service_healthy
 
   gateway:
@@ -33,11 +51,13 @@ services:
     # The only published port, bound to localhost: every request enters through the gateway.
     ports: ["127.0.0.1:${GATEWAY_PORT:-8080}:8000"]
     environment:
-      DOWNSTREAM_URL: http://orders:8000
+      DOWNSTREAM_URL: http://toxiproxy:8665  # proxy "gateway-orders"
       # Must exceed the orders->inventory budget, (MAX_RETRIES + 1) * TIMEOUT_S = 1.5 s,
       # or the gateway gives up before orders can report which hop failed.
       TIMEOUT_S: ${GATEWAY_TIMEOUT_S:-2.0}
       MAX_RETRIES: ${GATEWAY_MAX_RETRIES:-1}
     depends_on:
       orders:
+        condition: service_healthy
+      toxiproxy:
         condition: service_healthy

@@ -18,7 +18,12 @@ pytestmark = pytest.mark.integration
 
 LAB_DIR = Path(__file__).parents[2]
 PORT = "18080"
-ENV = {**os.environ, "COMPOSE_PROJECT_NAME": "chaosnet-lab-test", "GATEWAY_PORT": PORT}
+ENV = {
+    **os.environ,
+    "COMPOSE_PROJECT_NAME": "chaosnet-lab-test",
+    "GATEWAY_PORT": PORT,
+    "TOXIPROXY_PORT": "18474",
+}
 # orders->inventory defaults from compose.yaml: 0.5 s timeout, 2 retries
 ORDERS_BUDGET_S = (2 + 1) * 0.5
 
@@ -73,6 +78,7 @@ def test_all_services_are_healthy() -> None:
         "gateway": "healthy",
         "orders": "healthy",
         "inventory": "healthy",
+        "toxiproxy": "healthy",
     }
 
 
@@ -88,10 +94,11 @@ def test_unknown_item_is_404_end_to_end() -> None:
     assert res.status_code == 404
 
 
-def test_only_gateway_is_published() -> None:
+def test_only_gateway_and_toxiproxy_api_are_published() -> None:
     services = [json.loads(line) for line in compose("ps", "--format", "json").splitlines()]
     published = {s["Service"] for s in services if any(p["PublishedPort"] for p in s["Publishers"])}
-    assert published == {"gateway"}
+    # gateway for traffic, toxiproxy for its control API (faults); services stay internal
+    assert published == {"gateway", "toxiproxy"}
 
 
 def test_stopped_inventory_gives_fast_503_then_recovers() -> None:

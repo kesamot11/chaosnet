@@ -28,7 +28,7 @@ class FakeDownstream:
 
 
 def run(
-    script: Script, *, max_retries: int = 2, timeout_s: float = 0.5
+    script: Script, *, max_retries: int = 2, timeout_s: float = 0.5, method: str = "GET"
 ) -> tuple[Callable[[], httpx.Response], FakeDownstream]:
     fake = FakeDownstream(script)
 
@@ -36,7 +36,7 @@ def run(
         async def go() -> httpx.Response:
             async with httpx.AsyncClient(transport=httpx.MockTransport(fake.handle)) as client:
                 return await call_downstream(
-                    client, "GET", URL, hop=HOP, timeout_s=timeout_s, max_retries=max_retries
+                    client, method, URL, hop=HOP, timeout_s=timeout_s, max_retries=max_retries
                 )
 
         return asyncio.run(go())
@@ -130,3 +130,47 @@ def test_negative_max_retries_is_rejected_before_any_request() -> None:
     with pytest.raises(ValueError, match="max_retries"):
         call()
     assert fake.requests == []
+
+
+# --- Sprint 2: a proxy between services turns "downstream is down" into an error that
+# happens AFTER the request was sent (the connection is cut while reading the answer).
+
+
+def cut_after_send() -> httpx.ReadError:
+    return httpx.ReadError("connection closed by peer")
+
+
+def disconnected() -> httpx.RemoteProtocolError:
+    return httpx.RemoteProtocolError("Server disconnected without sending a response.")
+
+
+@pytest.mark.parametrize("error", [cut_after_send, disconnected])
+def test_get_cut_after_send_is_retried_then_503(error: Callable[[], Exception]) -> None:
+    call, fake = run([error()], max_retries=2, method="GET")
+    with pytest.raises(DownstreamError) as exc:
+        call()
+    assert exc.value.status_code == 503
+    assert len(fake.requests) == 3
+
+
+@pytest.mark.parametrize("error", [cut_after_send, disconnected])
+def test_post_cut_after_send_is_not_retried(error: Callable[[], Exception]) -> None:
+    # The downstream may already have processed the POST; repeating it could double it.
+    call, fake = run([error(), 200], max_retries=2, method="POST")
+    with pytest.raises(DownstreamError) as exc:
+        call()
+    assert exc.value.status_code == 503
+    assert len(fake.requests) == 1
+
+
+def test_post_connect_error_is_still_retried() -> None:
+    # A connection that never opened means the request was never sent: always safe to retry.
+    call, fake = run([refused(), 200], max_retries=2, method="POST")
+    assert call().status_code == 200
+    assert len(fake.requests) == 2
+
+
+def test_get_recovers_after_a_cut() -> None:
+    call, fake = run([cut_after_send(), 200], max_retries=2, method="GET")
+    assert call().status_code == 200
+    assert len(fake.requests) == 2
