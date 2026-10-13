@@ -1,0 +1,43 @@
+name: chaosnet-lab
+
+x-service: &service
+  build: .
+  image: chaosnet-lab:dev
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/healthz', timeout=1)"]
+    interval: 2s
+    timeout: 2s
+    retries: 10
+    start_period: 10s
+    start_interval: 1s
+
+services:
+  inventory:
+    <<: *service
+    command: ["uvicorn", "chaosnet_lab.inventory:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  orders:
+    <<: *service
+    command: ["uvicorn", "chaosnet_lab.orders:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      DOWNSTREAM_URL: http://inventory:8000
+      TIMEOUT_S: ${ORDERS_TIMEOUT_S:-0.5}
+      MAX_RETRIES: ${ORDERS_MAX_RETRIES:-2}
+    depends_on:
+      inventory:
+        condition: service_healthy
+
+  gateway:
+    <<: *service
+    command: ["uvicorn", "chaosnet_lab.gateway:app", "--host", "0.0.0.0", "--port", "8000"]
+    # The only published port, bound to localhost: every request enters through the gateway.
+    ports: ["127.0.0.1:${GATEWAY_PORT:-8080}:8000"]
+    environment:
+      DOWNSTREAM_URL: http://orders:8000
+      # Must exceed the orders->inventory budget, (MAX_RETRIES + 1) * TIMEOUT_S = 1.5 s,
+      # or the gateway gives up before orders can report which hop failed.
+      TIMEOUT_S: ${GATEWAY_TIMEOUT_S:-2.0}
+      MAX_RETRIES: ${GATEWAY_MAX_RETRIES:-1}
+    depends_on:
+      orders:
+        condition: service_healthy

@@ -123,3 +123,10 @@ def test_timeout_applies_to_each_attempt() -> None:
     for request in fake.requests:
         assert request.extensions["timeout"]["read"] == 0.25
         assert request.extensions["timeout"]["connect"] == 0.25
+
+
+def test_negative_max_retries_is_rejected_before_any_request() -> None:
+    call, fake = run([200], max_retries=-1)
+    with pytest.raises(ValueError, match="max_retries"):
+        call()
+    assert fake.requests == []

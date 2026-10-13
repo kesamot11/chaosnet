@@ -1,4 +1,4 @@
-.PHONY: check fmt
+.PHONY: check fmt integration
 
 PROJECTS := backend lab
 
@@ -11,3 +11,7 @@ check:
 # Apply formatting and safe lint fixes.
 fmt:
 	@for p in $(PROJECTS); do (cd $$p && uv run ruff format . && uv run ruff check --fix .); done
+
+# Acceptance tests against the real Docker Compose lab (needs Docker).
+integration:
+	cd lab && uv run pytest -m integration -v

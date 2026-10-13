@@ -32,4 +32,5 @@ typeCheckingMode = "strict"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+addopts = "-ra --strict-markers -m 'not integration'"
+markers = ["integration: needs Docker; runs the real Compose lab (make integration)"]
