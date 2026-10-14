@@ -1,5 +1,6 @@
 """Watchdog: removes all faults when heartbeats from the control plane stop (ADR-001, layer 3)."""
 
+import asyncio
 import time
 from collections.abc import Awaitable, Callable
 
@@ -41,4 +42,14 @@ async def watch(
     A failing ``reset`` (Toxiproxy down) is retried every ``interval_s`` and must never
     stop the loop. See tests/test_watchdog.py.
     """
-    raise NotImplementedError
+    pending = False
+    while True:
+        if lease.should_reset(clock()):
+            pending = True
+        if pending:
+            try:
+                await reset()
+                pending = False
+            except Exception:
+                pass
+        await asyncio.sleep(interval_s)
