@@ -1,9 +1,10 @@
 import asyncio
 
 import httpx
+import pytest
 from fakes import API, LINK, FakeToxiproxy
 
-from chaosnet.fault_cli import fault_from_args, hold_faults, parse_args
+from chaosnet.fault_cli import fault_from_args, hold_faults, main, parse_args
 from chaosnet.faults import FaultDriver
 
 WATCHDOG = "http://watchdog:8475"
@@ -92,3 +93,15 @@ def test_arguments_map_to_the_right_fault() -> None:
     asyncio.run(apply())
     [toxic] = lab.toxiproxy.toxics[LINK]
     assert (toxic["stream"], toxic["attributes"]["latency"]) == ("upstream", 250)
+
+
+def test_user_errors_print_one_line_not_a_traceback(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "sys.argv", ["chaosnet-fault", "latency", "--link", LINK, "--ms", "-5", "--duration", "1"]
+    )
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 1
+    assert capsys.readouterr().err == "error: Latency must be > 0 ms, got -5\n"

@@ -19,7 +19,7 @@ from datetime import datetime
 
 import httpx
 
-from chaosnet.faults import Fault, FaultDriver
+from chaosnet.faults import Fault, FaultDriver, FaultError
 
 AddFault = Callable[[FaultDriver], Awaitable[list[Fault]]]
 
@@ -138,3 +138,7 @@ def main() -> None:
         asyncio.run(run(parse_args(sys.argv[1:])))
     except KeyboardInterrupt, asyncio.CancelledError:
         sys.exit(130)
+    except (FaultError, ValueError, httpx.TransportError) as e:
+        # A typo in --link or an unreachable Toxiproxy is a user error, not a crash.
+        print(f"error: {str(e).strip() or type(e).__name__}", file=sys.stderr)
+        sys.exit(1)
