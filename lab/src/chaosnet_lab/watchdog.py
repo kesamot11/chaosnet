@@ -1,5 +1,8 @@
 """Watchdog: removes all faults when heartbeats from the control plane stop (ADR-001, layer 3)."""
 
+import time
+from collections.abc import Awaitable, Callable
+
 
 class Lease:
     """Time-limited permission for faults to stay active.
@@ -24,3 +27,18 @@ class Lease:
             self.reset_done = True
             return True
         return False
+
+
+async def watch(
+    lease: Lease,
+    reset: Callable[[], Awaitable[None]],
+    *,
+    interval_s: float = 0.5,
+    clock: Callable[[], float] = time.monotonic,
+) -> None:
+    """Forever: when the lease expires, call ``reset`` until it succeeds.
+
+    A failing ``reset`` (Toxiproxy down) is retried every ``interval_s`` and must never
+    stop the loop. See tests/test_watchdog.py.
+    """
+    raise NotImplementedError

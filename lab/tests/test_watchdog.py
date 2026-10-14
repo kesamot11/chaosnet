@@ -1,6 +1,9 @@
+import asyncio
+import time
+
 import pytest
 
-from chaosnet_lab.watchdog import Lease
+from chaosnet_lab.watchdog import Lease, watch
 
 
 def test_fresh_lease_does_not_reset_before_timeout() -> None:
@@ -53,3 +56,52 @@ def test_heartbeat_after_a_reset_re_arms_the_lease() -> None:
 def test_non_positive_timeout_is_rejected(timeout_s: float) -> None:
     with pytest.raises(ValueError, match=str(timeout_s)):
         Lease(timeout_s=timeout_s, now=0)
+
+
+# --- the background loop ---------------------------------------------------------------
+
+
+class FakeReset:
+    """Stands in for POST /reset on Toxiproxy; can fail the first N calls."""
+
+    def __init__(self, failures: int = 0) -> None:
+        self.failures = failures
+        self.calls = 0
+
+    async def __call__(self) -> None:
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise ConnectionError("toxiproxy unreachable")
+
+
+def run_watch(lease: Lease, reset: FakeReset, *, seconds: float, renew_every: float = 0) -> None:
+    async def go() -> None:
+        loop = asyncio.get_running_loop()
+        watcher = asyncio.create_task(watch(lease, reset, interval_s=0.01, clock=loop.time))
+        end = loop.time() + seconds
+        while loop.time() < end:
+            if renew_every:
+                lease.renew(loop.time())
+            await asyncio.sleep(renew_every or 0.01)
+        watcher.cancel()
+
+    asyncio.run(go())
+
+
+def test_resets_once_when_heartbeats_stop() -> None:
+    reset = FakeReset()
+    run_watch(Lease(timeout_s=0.05, now=0), reset, seconds=0.3)
+    assert reset.calls == 1
+
+
+def test_never_resets_while_heartbeats_arrive() -> None:
+    reset = FakeReset()
+    lease = Lease(timeout_s=0.1, now=time.monotonic())  # the event loop clock
+    run_watch(lease, reset, seconds=0.3, renew_every=0.02)
+    assert reset.calls == 0
+
+
+def test_failed_reset_is_retried_until_it_succeeds() -> None:
+    reset = FakeReset(failures=2)
+    run_watch(Lease(timeout_s=0.05, now=0), reset, seconds=0.3)
+    assert reset.calls == 3  # two failures, one success, then nothing more
