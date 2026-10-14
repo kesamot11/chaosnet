@@ -9,10 +9,18 @@ class Lease:
     """
 
     def __init__(self, timeout_s: float, now: float) -> None:
-        raise NotImplementedError
+        if timeout_s <= 0:
+            raise ValueError(f"Timeout needs to be greater than 0, got {timeout_s}")
+        self.timeout_s = timeout_s
+        self.last_beat = now
+        self.reset_done = False
 
     def renew(self, now: float) -> None:
-        raise NotImplementedError
+        self.last_beat = now
+        self.reset_done = False
 
     def should_reset(self, now: float) -> bool:
-        raise NotImplementedError
+        if now - self.last_beat >= self.timeout_s and not self.reset_done:
+            self.reset_done = True
+            return True
+        return False
