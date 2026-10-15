@@ -19,11 +19,13 @@ pytestmark = pytest.mark.integration
 LAB_DIR = Path(__file__).parents[2]
 PORT = "18080"
 TOXIPROXY_PORT = "18474"
+WATCHDOG_PORT = "18475"
 ENV = {
     **os.environ,
     "COMPOSE_PROJECT_NAME": "chaosnet-lab-test",
     "GATEWAY_PORT": PORT,
     "TOXIPROXY_PORT": TOXIPROXY_PORT,
+    "WATCHDOG_PORT": WATCHDOG_PORT,
 }
 # orders->inventory defaults from compose.yaml: 0.5 s timeout, 2 retries
 ORDERS_BUDGET_S = (2 + 1) * 0.5
@@ -80,6 +82,7 @@ def test_all_services_are_healthy() -> None:
         "orders": "healthy",
         "inventory": "healthy",
         "toxiproxy": "healthy",
+        "watchdog": "healthy",
     }
 
 
@@ -95,11 +98,11 @@ def test_unknown_item_is_404_end_to_end() -> None:
     assert res.status_code == 404
 
 
-def test_only_gateway_and_toxiproxy_api_are_published() -> None:
+def test_only_gateway_and_control_apis_are_published() -> None:
     services = [json.loads(line) for line in compose("ps", "--format", "json").splitlines()]
     published = {s["Service"] for s in services if any(p["PublishedPort"] for p in s["Publishers"])}
-    # gateway for traffic, toxiproxy for its control API (faults); services stay internal
-    assert published == {"gateway", "toxiproxy"}
+    # gateway for traffic; toxiproxy and watchdog are control APIs; services stay internal
+    assert published == {"gateway", "toxiproxy", "watchdog"}
 
 
 def test_stopped_inventory_gives_fast_503_then_recovers() -> None:
@@ -149,3 +152,38 @@ def test_proxies_survive_a_toxiproxy_restart() -> None:
     assert set(proxies) == {"gateway-orders", "orders-inventory"}
     res, _ = order()
     assert res.status_code == 200
+
+
+def toxics_on(link: str) -> list[str]:
+    proxies = httpx.get(f"http://127.0.0.1:{TOXIPROXY_PORT}/proxies", timeout=5).json()
+    return [t["name"] for t in proxies[link]["toxics"]]
+
+
+def test_watchdog_keeps_faults_while_heartbeats_arrive_then_removes_them() -> None:
+    # ADR-001 layer 3, with the default 5 s lease and 1 s heartbeats (Sprint 2 decisions).
+    toxics = f"http://127.0.0.1:{TOXIPROXY_PORT}/proxies/orders-inventory/toxics"
+    heartbeat = f"http://127.0.0.1:{WATCHDOG_PORT}/heartbeat"
+    httpx.post(heartbeat, timeout=5).raise_for_status()
+    httpx.post(
+        toxics,
+        json={
+            "name": "chaosnet-latency-upstream",
+            "type": "latency",
+            "stream": "upstream",
+            "attributes": {"latency": 100},
+        },
+        timeout=5,
+    ).raise_for_status()
+    try:
+        for _ in range(7):  # longer than the lease: only heartbeats keep the fault alive
+            httpx.post(heartbeat, timeout=5).raise_for_status()
+            time.sleep(1)
+        assert toxics_on("orders-inventory") == ["chaosnet-latency-upstream"]
+
+        stopped = time.monotonic()  # the control plane "dies" here
+        while toxics_on("orders-inventory") and time.monotonic() - stopped < 10:
+            time.sleep(0.2)
+        assert toxics_on("orders-inventory") == []
+        assert 4 <= time.monotonic() - stopped < 7
+    finally:
+        httpx.post(f"http://127.0.0.1:{TOXIPROXY_PORT}/reset", timeout=5)

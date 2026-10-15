@@ -238,3 +238,32 @@ Not sent → always retry. Maybe processed → retry only idempotent methods.
 
 Also learned: Python picks the **first** matching `except`, so the more specific
 `ConnectTimeout` must come before its parent `TimeoutException`.
+
+---
+
+## 2026-10-15: Writing the watchdog (lease + asyncio loop)
+
+**Threads or asyncio?** My first idea: threads. Works, but two threads touching the
+"last heartbeat" variable need locks (race condition). The watchdog only *waits*, so
+asyncio fits: one thread, tasks take turns at every `await`, no locks.
+
+**Passing time in as `now`** makes the lease testable without sleeping.
+
+**Remembering state:** the lease keeps `last_beat`, `timeout_s` and whether the reset
+was already reported (one reset per expiry, re-armed by the next heartbeat).
+
+**"Only once" + a failed reset = never again.** If Toxiproxy is down at that one
+moment, nothing retries. Fix: the loop keeps `pending = True` until a reset succeeds
+(the lease handles *time*, the loop handles *delivery*).
+
+Mistakes I made:
+
+1. `asyncio.sleep(...)` **without `await`**: it does nothing, so the loop never hands
+   control back. The tests hung forever and even Ctrl+C did not work, because asyncio
+   stops a task by cancelling it, which also needs the loop to yield. This is exactly
+   the asyncio downside we wrote down when choosing it.
+2. `continue` in `except` skipped the `sleep`, so a dead Toxiproxy would get thousands
+   of reset attempts per second. `pass` falls through to the sleep.
+
+Result on the lab: after `kill -9` of the fault CLI, the watchdog removed the fault
+4.9 s later.

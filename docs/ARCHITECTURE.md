@@ -13,8 +13,9 @@ ChaosNet runs entirely on one machine (ADR-002: local-first). It has two halves:
   Toxiproxy so faults can be injected per link.
 - **Control plane.** Decides what runs and measures it, but never carries lab
   traffic itself. Today it consists only of the open-model load generator
-  (`backend/src/chaosnet/loadgen.py`). The experiment controller, fault injection
-  and cleanup layers are planned (ADR-001, milestones M2–M3).
+  (`backend/src/chaosnet/loadgen.py`), the fault driver and fault CLI
+  (`faults.py`, `fault_cli.py`). The experiment controller and reconcile (cleanup
+  layer 2) are planned (ADR-001, M3).
 
 ```mermaid
 flowchart LR
@@ -47,6 +48,8 @@ flowchart LR
 | `relay`, `Hop` | `lab/src/chaosnet_lab/relay.py` | Hop config from env (validated at startup), error mapping, `path` propagation. |
 | load generator | `backend/src/chaosnet/loadgen.py` | Open-model load at a fixed rate; latency from scheduled send time; JSON report. |
 | `percentile` | `backend/src/chaosnet/stats.py` | Nearest-rank percentiles for reports. |
+| watchdog | `lab/src/chaosnet_lab/watchdog.py` | Cleanup layer 3: `POST /heartbeat` renews a 5 s lease; when it expires, `POST /reset` on Toxiproxy, retried until it succeeds. API on `127.0.0.1:8475`. |
+| fault driver + CLI | `backend/src/chaosnet/faults.py`, `fault_cli.py` | Add/remove/list faults per link and direction; the CLI holds a fault for a fixed time, removes it on exit, SIGINT and SIGTERM (layer 1), and sends heartbeats. |
 | Toxiproxy | `lab/compose.yaml`, `lab/toxiproxy.json` | One proxy per link, recreated from the config file on every start; API on `127.0.0.1:8474`. No measurable latency overhead (EXP-001b). |
 
 All three services are built from **one image** and differ only in their start
@@ -84,9 +87,17 @@ A caller's timeout must exceed the callee's whole retry budget,
 (multiplying load downstream) and blames the wrong hop. With the defaults:
 orders→inventory budget 1.5 s < gateway→orders timeout 2.0 s.
 
+## Fault cleanup (verified on the lab)
+
+| How the fault's owner ends | Who removes the fault | Measured |
+|---|---|---|
+| duration over, Ctrl+C, `kill` | the CLI itself (layer 1) | ~2–3 s after the signal |
+| `kill -9`, crash, frozen machine | the watchdog (layer 3) | 4.9 s after `kill -9` |
+| control plane restarted | reconcile (layer 2) | planned for M3 |
+
 ## Networking rules
 
-- Only the gateway (traffic) and the Toxiproxy API (fault control) are published,
+- Only the gateway (traffic), the Toxiproxy API and the watchdog API (control) are published,
   only on `127.0.0.1`. Every request enters through the path where faults are
   injected; nothing can bypass it.
 - The control plane reaches the lab only through published ports and the Docker

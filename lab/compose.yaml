@@ -31,6 +31,20 @@ services:
       start_period: 10s
       start_interval: 1s
 
+  # Cleanup layer 3 (ADR-001): removes all faults when the control plane stops sending
+  # heartbeats (POST /heartbeat) for LEASE_TIMEOUT_S.
+  watchdog:
+    <<: *service
+    command: ["uvicorn", "chaosnet_lab.watchdog:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports: ["127.0.0.1:${WATCHDOG_PORT:-8475}:8000"]
+    environment:
+      TOXIPROXY_URL: http://toxiproxy:8474
+      LEASE_TIMEOUT_S: ${LEASE_TIMEOUT_S:-5}
+      CHECK_INTERVAL_S: ${CHECK_INTERVAL_S:-0.5}
+    depends_on:
+      toxiproxy:
+        condition: service_healthy
+
   inventory:
     <<: *service
     command: ["uvicorn", "chaosnet_lab.inventory:app", "--host", "0.0.0.0", "--port", "8000"]
