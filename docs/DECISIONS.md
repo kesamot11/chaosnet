@@ -135,3 +135,80 @@ Option 3 as the target. Until the replay demo exists, ChaosNet is local-only.
 - Option 2 remains possible later: ADR-001 keeps execution separable into an
   agent that could run inside a per-user sandbox. It would need its own ADR and
   security design.
+
+---
+
+## ADR-003: Fault injection wiring, cleanup scope and retry safety
+
+- **Status:** Accepted
+- **Date:** 2026-10-15 (decided in Sprint 2 planning on 2026-10-13 and during Sprint 2)
+- **Issues:** #30–#34
+- **Decided by:** Tomáš; reasons below are his, recorded from the discussion
+
+### Context
+
+ADR-001 defined three cleanup layers but not how faults reach the lab, which layers
+to build first, or how the watchdog learns that the control plane is alive. Adding a
+proxy between services also changed which errors callers see, which made retries
+unsafe for some requests.
+
+### Decisions
+
+**1. One Toxiproxy with one proxy per link** (instead of one Toxiproxy per link).
+Each proxy has its own toxics, so links stay independently configurable either way.
+The only difference is the blast radius of a Toxiproxy crash; one instance means one
+API and one `/reset` for the watchdog.
+*Reason:* "B has unnecessary overhead that only helps in the rare case that Toxiproxy
+crashes." A restart re-creates the proxies from `toxiproxy.json`, and the healthcheck
+verifies they were loaded.
+
+**2. Cleanup layers 1 and 3 now, layer 2 (reconcile with a database) in M3.**
+*Reason:* a database needs a data model, and the data model belongs to the experiment
+controller (M3). Building it now would mean designing it blind and likely redoing it.
+Layers are additive: the fault driver and the watchdog are reused unchanged in M3.
+
+**3. Heartbeats are pushed by the control plane: `POST /heartbeat`, empty body, `204`.
+The lease timeout is configured in the watchdog, not sent by the client.**
+*Reason:* "The first heartbeat might never arrive." The watchdog needs its own timeout
+anyway (for startup, before any heartbeat), and one place for the value avoids two
+senders (CLI now, controller later) sending different numbers. Push keeps the CLI a
+plain client; only the small watchdog is a server.
+
+**4. Heartbeat every 1 s, lease 5 s.**
+*Reason:* 1 request per second costs nothing; 5 s tolerates 4 missed heartbeats. The
+worst normal stall measured on the Mac (EXP-001, ~40 ms) is 100× shorter. A fault
+outlives a crashed owner by at most ~5 s (measured: 4.9 s after `kill -9`).
+
+**5. The watchdog uses asyncio, not threads.**
+*Reason:* the watchdog only waits (for heartbeats, for the next check). One thread with
+tasks taking turns at `await` needs no locks on the shared lease. Same model as the
+load generator and the CLI.
+
+**6. A request that may already have been sent is retried only if it is a GET.**
+`ConnectError` and `ConnectTimeout` (never sent) are always retried; `ReadError`,
+`RemoteProtocolError` and read timeouts (maybe processed) only for GET. With a proxy in
+the path, a stopped service shows up as a cut connection *after* the request was sent.
+*Reason:* "You could pay more than 1000 CZK." Repeating a non-idempotent request such
+as a POST can apply it twice, and the client cannot tell where the connection broke.
+
+### Alternatives rejected
+
+| Decision | Rejected | Why |
+|---|---|---|
+| 1 | Toxiproxy per link | N containers and N resets for no gain on one machine |
+| 1 | `tc netem` | shapes a whole interface, not one link (netem would also slow gateway↔orders) |
+| 2 | all three layers now | database designed before its data model exists |
+| 3 | client sends the lease length | watchdog needs a default anyway; two sources of truth |
+| 3 | watchdog polls the control plane | the CLI would have to be a server; calling the Mac from a container |
+| 5 | threads | locks around shared state, harder to test |
+| 6 | retry every transport error | duplicates non-idempotent requests |
+
+### Consequences
+
+- Toxiproxy is a single point of failure for all links. Acceptable for a local lab.
+- A fault added directly through the Toxiproxy API, without a heartbeating owner, is
+  removed by the watchdog after at most one lease. Faults must have an owner.
+- Without layer 2, a fault survives a control plane crash for up to one lease, not
+  longer. A crash of the watchdog *and* the control plane together is not covered.
+- Non-GET requests fail fast (503/504) instead of being retried after a cut connection,
+  so a POST can fail where a retry might have succeeded. Correctness over availability.
