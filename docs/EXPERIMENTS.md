@@ -128,3 +128,22 @@ of this setup; EXP-001b is the baseline for fault experiments from now on.
 **Limitations:** the two baselines were measured about an hour apart, not
 interleaved, so slow drift of the machine would be indistinguishable from a small
 proxy effect.
+
+---
+
+## EXP-002: +300 ms latency on orders → inventory (#36)
+
+**Question:** how does a slow inventory link affect users, and how does the per-attempt
+timeout (0.5 s, 2 retries on that hop) interact with the extra latency?
+
+**Variants:**
+
+- **A:** +300 ms in the request direction only (`--direction request`)
+- **B:** +300 ms in both directions (`--direction both`)
+
+**Prediction (Tomáš, 2026-10-15, before any measurement, recorded verbatim):**
+
+| | p50 | errors |
+|---|---|---|
+| A | about 305 ms | none |
+| B | 605 ms | all, 504 |
