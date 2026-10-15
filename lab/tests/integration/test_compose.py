@@ -203,19 +203,37 @@ CLI_ENV = {
 FAULT = ["latency", "--link", "orders-inventory", "--ms", "100", "--direction", "both"]
 
 
-def start_fault(duration_s: int) -> subprocess.Popen[str]:
-    # Renew the lease first, so a watchdog that just started cannot expire in the moment
-    # between the fault being applied and the CLI's first heartbeat.
-    httpx.post(f"http://127.0.0.1:{WATCHDOG_PORT}/heartbeat", timeout=5).raise_for_status()
-    proc = subprocess.Popen(
-        [str(FAULT_CLI), *FAULT, "--duration", str(duration_s)],
-        env=CLI_ENV,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    wait_until(lambda: len(toxics_on("orders-inventory")) == 2, timeout_s=5)
-    return proc
+StartFault = Callable[[int], subprocess.Popen[bytes]]
+
+
+@pytest.fixture
+def start_fault() -> Iterator[StartFault]:
+    """Start the real fault CLI; after every test, kill what is left and reset Toxiproxy.
+
+    The teardown runs even when the test fails, so one failure cannot leave a running CLI
+    (which would keep its fault alive via heartbeats) to break the following tests.
+    """
+    procs: list[subprocess.Popen[bytes]] = []
+
+    def start(duration_s: int) -> subprocess.Popen[bytes]:
+        # Renew the lease first, so a watchdog that just started cannot expire in the
+        # moment between the fault being applied and the CLI's first heartbeat.
+        httpx.post(f"http://127.0.0.1:{WATCHDOG_PORT}/heartbeat", timeout=5).raise_for_status()
+        # Output is not piped: pytest captures it and shows it when a test fails, and an
+        # unread pipe could fill up and block the CLI.
+        proc = subprocess.Popen(
+            [str(FAULT_CLI), *FAULT, "--duration", str(duration_s)], env=CLI_ENV
+        )
+        procs.append(proc)
+        wait_until(lambda: len(toxics_on("orders-inventory")) == 2, timeout_s=5)
+        return proc
+
+    yield start
+    for proc in procs:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)
+    httpx.post(f"http://127.0.0.1:{TOXIPROXY_PORT}/reset", timeout=5)
 
 
 def wait_until(condition: Callable[[], bool], *, timeout_s: float) -> float:
@@ -233,8 +251,8 @@ def assert_back_to_baseline() -> None:
     assert elapsed < 0.1, f"lab still slow after cleanup: {elapsed:.3f} s"
 
 
-def test_cli_fault_slows_the_lab_and_expires_after_its_duration() -> None:
-    proc = start_fault(duration_s=2)
+def test_cli_fault_slows_the_lab_and_expires_after_its_duration(start_fault: StartFault) -> None:
+    proc = start_fault(2)
     _, elapsed = order()
     assert elapsed >= 0.2  # 100 ms each way
     assert proc.wait(timeout=10) == 0
@@ -242,16 +260,18 @@ def test_cli_fault_slows_the_lab_and_expires_after_its_duration() -> None:
     assert_back_to_baseline()
 
 
-def test_ctrl_c_removes_the_fault_within_one_second() -> None:
-    proc = start_fault(duration_s=60)
+def test_ctrl_c_removes_the_fault_within_one_second(start_fault: StartFault) -> None:
+    proc = start_fault(60)
     proc.send_signal(signal.SIGINT)
     assert wait_until(lambda: toxics_on("orders-inventory") == [], timeout_s=1) < 1
     proc.wait(timeout=5)
     assert_back_to_baseline()
 
 
-def test_kill_9_fault_is_removed_by_the_watchdog_within_lease_plus_one_second() -> None:
-    proc = start_fault(duration_s=60)
+def test_kill_9_fault_is_removed_by_the_watchdog_within_lease_plus_one_second(
+    start_fault: StartFault,
+) -> None:
+    proc = start_fault(60)
     proc.kill()  # SIGKILL: the CLI gets no chance to clean up
     proc.wait(timeout=5)
     took = wait_until(lambda: toxics_on("orders-inventory") == [], timeout_s=6)
