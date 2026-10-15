@@ -107,6 +107,24 @@ def test_adding_the_same_fault_twice_fails_with_the_link_name() -> None:
         run(twice)
 
 
+def test_partial_both_failure_removes_already_created_toxic() -> None:
+    fake = FakeToxiproxy()
+    fake.toxics[LINK].append(
+        {
+            "name": "chaosnet-latency-downstream",
+            "type": "latency",
+            "stream": "downstream",
+            "toxicity": 1,
+            "attributes": {"latency": 300, "jitter": 0},
+        }
+    )
+
+    with pytest.raises(FaultError, match=LINK):
+        run(lambda d: d.add_latency(LINK, 300, "both"), fake)
+
+    assert [t["name"] for t in fake.toxics[LINK]] == ["chaosnet-latency-downstream"]
+
+
 def test_unknown_link_fails_with_its_name() -> None:
     with pytest.raises(FaultError, match="no-such-link"):
         run(lambda d: d.add_latency("no-such-link", 300, "request"))

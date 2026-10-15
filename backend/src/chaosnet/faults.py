@@ -98,17 +98,25 @@ class FaultDriver:
         streams = self._get_streams(direction)
 
         faults: list[Fault] = []
-        for stream in streams:
-            name = f"chaosnet-{kind}-{stream}"
-            toxic = {
-                "name": name,
-                "type": kind,
-                "stream": stream,
-                "toxicity": 1,
-                "attributes": attributes,
-            }
-            res = await self.client.post(f"{self.api_url}/proxies/{link}/toxics", json=toxic)
-            if res.is_error:
-                raise FaultError(f"{link}: HTTP {res.status_code} {res.text}")
-            faults.append(Fault(link, name, kind, STREAM_TO_DIRECTION[stream], attributes))
-        return faults
+        try:
+            for stream in streams:
+                name = f"chaosnet-{kind}-{stream}"
+                toxic = {
+                    "name": name,
+                    "type": kind,
+                    "stream": stream,
+                    "toxicity": 1,
+                    "attributes": attributes,
+                }
+                res = await self.client.post(f"{self.api_url}/proxies/{link}/toxics", json=toxic)
+                if res.is_error:
+                    raise FaultError(f"{link}: HTTP {res.status_code} {res.text}")
+                faults.append(Fault(link, name, kind, STREAM_TO_DIRECTION[stream], attributes))
+            return faults
+        except Exception:
+            for created in faults:
+                try:
+                    await self.remove(created)
+                except Exception:
+                    pass
+            raise
