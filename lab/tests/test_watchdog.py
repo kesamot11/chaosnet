@@ -3,6 +3,7 @@ import time
 
 import pytest
 
+import chaosnet_lab.watchdog as wd
 from chaosnet_lab.watchdog import Lease, watch
 
 
@@ -105,3 +106,47 @@ def test_failed_reset_is_retried_until_it_succeeds() -> None:
     reset = FakeReset(failures=2)
     run_watch(Lease(timeout_s=0.05, now=0), reset, seconds=0.3)
     assert reset.calls == 3  # two failures, one success, then nothing more
+
+
+def test_a_long_outage_logs_one_line_not_one_per_attempt(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    reset = FakeReset(failures=1000)
+    run_watch(Lease(timeout_s=0.05, now=0), reset, seconds=0.3)
+    failing = [line for line in capsys.readouterr().out.splitlines() if "reset failing" in line]
+    assert reset.calls > 10
+    assert len(failing) == 1
+
+
+def test_recovery_is_logged_with_the_number_of_failures(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    run_watch(Lease(timeout_s=0.05, now=0), FakeReset(failures=2), seconds=0.3)
+    assert "all faults removed after 2 failed attempt(s)" in capsys.readouterr().out
+
+
+# --- the service ---------------------------------------------------------------------
+
+
+def test_healthz_is_unhealthy_when_the_watch_loop_has_stopped() -> None:
+    async def check() -> tuple[int, int]:
+        async def forever() -> None:
+            await asyncio.sleep(3600)
+
+        async def dying() -> None:
+            raise RuntimeError("bug in the loop")
+
+        wd.app.state.watch_task = asyncio.create_task(forever())
+        alive = wd.healthz().status_code
+        wd.app.state.watch_task.cancel()
+        wd.app.state.watch_task = asyncio.create_task(dying())
+        await asyncio.sleep(0)  # let the task run and die
+        return alive, wd.healthz().status_code
+
+    assert asyncio.run(check()) == (200, 503)
+
+
+def test_heartbeat_renews_the_lease() -> None:
+    wd.app.state.lease = Lease(timeout_s=5, now=0)
+    assert wd.heartbeat().status_code == 204
+    assert wd.app.state.lease.last_beat > 0

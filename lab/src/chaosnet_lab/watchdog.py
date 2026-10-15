@@ -5,14 +5,18 @@ import os
 import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 
 import httpx
 from fastapi import FastAPI, Response
+from fastapi.responses import JSONResponse
+
+FAILURE_LOG_EVERY_S = 10.0
 
 
 def log(message: str) -> None:
-    print(f"{datetime.now():%H:%M:%S} watchdog: {message}", flush=True)
+    # UTC with an explicit Z everywhere, so CLI and watchdog logs line up (review of #43).
+    print(f"{datetime.now(UTC):%Y-%m-%dT%H:%M:%SZ} watchdog: {message}", flush=True)
 
 
 class Lease:
@@ -53,6 +57,8 @@ async def watch(
     stop the loop. See tests/test_watchdog.py.
     """
     pending = False
+    failures = 0
+    next_failure_log = 0.0
     while True:
         if lease.should_reset(clock()):
             pending = True
@@ -60,9 +66,15 @@ async def watch(
             try:
                 await reset()
                 pending = False
-                log("lease expired: all faults removed")
+                after = f" after {failures} failed attempt(s)" if failures else ""
+                log(f"lease expired: all faults removed{after}")
+                failures = 0
             except Exception as e:
-                log(f"reset failed, retrying: {type(e).__name__}: {e}")
+                failures += 1
+                # One line per FAILURE_LOG_EVERY_S, not one per attempt (review of #43).
+                if clock() >= next_failure_log:
+                    log(f"reset failing ({failures} attempt(s)): {type(e).__name__}: {e}")
+                    next_failure_log = clock() + FAILURE_LOG_EVERY_S
         await asyncio.sleep(interval_s)
 
 
@@ -90,6 +102,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         task = asyncio.create_task(
             watch(app.state.lease, reset_toxiproxy, interval_s=check_interval_s)
         )
+        task.add_done_callback(
+            lambda t: t.cancelled() or log(f"watch loop stopped: {t.exception()!r}")
+        )
+        app.state.watch_task = task
         log(f"lease {lease_timeout_s} s, checking every {check_interval_s} s")
         yield
         task.cancel()
@@ -99,8 +115,12 @@ app = FastAPI(title="watchdog", lifespan=lifespan)
 
 
 @app.get("/healthz")
-def healthz() -> dict[str, str]:
-    return {"status": "ok"}
+def healthz() -> Response:
+    # Healthy only while the loop that guards the lease is running: a live HTTP server
+    # with a dead loop would look fine and protect nothing (review of #43).
+    if app.state.watch_task.done():
+        return JSONResponse({"status": "watch loop stopped"}, status_code=503)
+    return JSONResponse({"status": "ok"})
 
 
 @app.post("/heartbeat", status_code=204)

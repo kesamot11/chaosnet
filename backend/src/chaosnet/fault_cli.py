@@ -15,7 +15,7 @@ import os
 import signal
 import sys
 from collections.abc import Awaitable, Callable
-from datetime import datetime
+from datetime import UTC, datetime
 
 import httpx
 
@@ -25,7 +25,8 @@ AddFault = Callable[[FaultDriver], Awaitable[list[Fault]]]
 
 
 def log(message: str) -> None:
-    print(f"{datetime.now():%H:%M:%S} {message}", flush=True)
+    # UTC with an explicit Z everywhere, so CLI and watchdog logs line up (review of #43).
+    print(f"{datetime.now(UTC):%Y-%m-%dT%H:%M:%SZ} {message}", flush=True)
 
 
 async def hold_faults(
