@@ -69,3 +69,7 @@ uv run chaosnet-fault clear    # remove all faults
 Links: `gateway-orders`, `orders-inventory`. Fault kinds: `latency`, `bandwidth`, `reset_peer`.
 
 `make integration` runs the acceptance tests against a real Compose lab (needs Docker).
+
+## License
+
+[MIT](LICENSE)
