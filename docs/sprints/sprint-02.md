@@ -46,3 +46,6 @@ do" pace for new code is "ideal".
    CLI and signals, watchdog lifespan, integration fixtures, Toxiproxy wiring). Tomáš
    explains, Claude fills gaps.
 3. Keep: real review with a checklist, predictions in their own PR before measuring.
+4. **New rule (Tomáš): after every sprint, an interview check before the next
+   planning:** a multiple-choice quiz on the sprint, then questions answered in his own
+   words. Weak spots go to `docs/LEARNING.md`.
