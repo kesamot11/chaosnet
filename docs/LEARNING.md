@@ -267,3 +267,15 @@ Mistakes I made:
 
 Result on the lab: after `kill -9` of the fault CLI, the watchdog removed the fault
 4.9 s later.
+
+---
+
+## 2026-10-15: EXP-002, predictions that contradict each other
+
+Predicted for +300 ms in both directions: "p50 605 ms" **and** "all requests fail with
+504". Both cannot be true: if every attempt times out after 0.5 s, orders makes all
+3 attempts and the request takes 3 × 0.5 = 1.5 s (measured 1509.6 ms). Lesson: check
+that the parts of a prediction agree with each other, and follow the request through
+every retry, not just one attempt.
+
+Also learned: a timeout turns gradual slowness into a sudden outage (a "cliff").

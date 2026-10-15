@@ -147,3 +147,42 @@ timeout (0.5 s, 2 retries on that hop) interact with the extra latency?
 |---|---|---|
 | A | about 305 ms | none |
 | B | 605 ms | all, 504 |
+
+**Setup:** lab at `cd03c01` (Toxiproxy on both links, watchdog), `orders → inventory`
+0.5 s per attempt and 2 retries (GET); `gateway → orders` 2.0 s, 1 retry. Fault applied
+with `chaosnet-fault latency --link orders-inventory --ms 300 --direction <A|B>` for the
+whole measurement, then removed (verified: 0 faults left after each variant).
+
+**Method:** per variant one warm-up run (discarded) and 5 runs of 50 req/s × 30 s from the
+Mac, as in EXP-001. Started 2026-10-15 13:02 UTC, after the prediction PR (#45) was opened.
+
+**Results** (latency of all requests, ms; median across 5 runs [min – max]):
+
+| | p50 | p95 | p99 | errors |
+|---|---|---|---|---|
+| EXP-001b, no fault | 4.79 | 11.10 | 12.41 | 0 / 7500 |
+| **A**, +300 ms request | **306.9** [306.5 – 307.4] | 311.6 [311.3 – 312.0] | 313.5 [312.7 – 314.5] | **0 / 7500** |
+| **B**, +300 ms both | **1509.6** [1509.6 – 1509.8] | 1513.8 [1513.1 – 1514.3] | 1520.5 [1519.0 – 1521.6] | **7500 / 7500**, all 504 |
+
+Variant B status checked with a single request under the same fault:
+`{"error":"timeout","failed_hop":"orders->inventory"}  HTTP 504 in 1.53 s`.
+Generator send lag max ≤ 9.5 ms in every run.
+
+**Interpretation:**
+
+- *A:* predicted ~305 ms, no errors. **Correct.** 300 ms one-way stays below the 0.5 s
+  per-attempt timeout, so every request succeeds, just 302 ms slower than baseline.
+- *B errors:* predicted all 504. **Correct.** 600 ms round trip exceeds 0.5 s on every
+  attempt.
+- *B p50:* predicted 605 ms. **Wrong:** 1509.6 ms. The two B predictions contradicted
+  each other: if no attempt answers within 0.5 s, orders makes all 3 attempts and gives up
+  after 3 × 0.5 s = 1.5 s. Users wait 1.5 s *and* get an error.
+- **Timeouts create a cliff.** Adding 300 ms on the return path turned "everything works,
+  300 ms slower" into "nothing works". Degradation is not proportional to the fault.
+- **Hypothesis, not measured:** in B every attempt reaches inventory and is processed;
+  only the answer arrives too late. Inventory would do 3× the work (150 req/s instead of
+  50) for zero successful requests. To verify with service metrics (M5); this is the
+  retry amplification M6 is about.
+
+**Limitations:** constant latency without jitter, so the cliff is perfectly sharp; with
+jitter some attempts would succeed near the boundary. One request type, one machine.
