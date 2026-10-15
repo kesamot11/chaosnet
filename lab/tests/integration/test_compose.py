@@ -6,9 +6,10 @@ touch a lab you are running for development.
 
 import json
 import os
+import signal
 import subprocess
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import httpx
@@ -187,3 +188,73 @@ def test_watchdog_keeps_faults_while_heartbeats_arrive_then_removes_them() -> No
         assert 4 <= time.monotonic() - stopped < 7
     finally:
         httpx.post(f"http://127.0.0.1:{TOXIPROXY_PORT}/reset", timeout=5)
+
+
+# --- #34: a fault never outlives its owner (ADR-001), driven through the real fault CLI ---
+
+# The venv binary, not `uv run`: kill -9 must hit the CLI itself, not a uv wrapper whose
+# child would keep running (and keep sending heartbeats).
+FAULT_CLI = LAB_DIR.parent / "backend" / ".venv" / "bin" / "chaosnet-fault"
+CLI_ENV = {
+    **os.environ,
+    "TOXIPROXY_URL": f"http://127.0.0.1:{TOXIPROXY_PORT}",
+    "WATCHDOG_URL": f"http://127.0.0.1:{WATCHDOG_PORT}",
+}
+FAULT = ["latency", "--link", "orders-inventory", "--ms", "100", "--direction", "both"]
+
+
+def start_fault(duration_s: int) -> subprocess.Popen[str]:
+    # Renew the lease first, so a watchdog that just started cannot expire in the moment
+    # between the fault being applied and the CLI's first heartbeat.
+    httpx.post(f"http://127.0.0.1:{WATCHDOG_PORT}/heartbeat", timeout=5).raise_for_status()
+    proc = subprocess.Popen(
+        [str(FAULT_CLI), *FAULT, "--duration", str(duration_s)],
+        env=CLI_ENV,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    wait_until(lambda: len(toxics_on("orders-inventory")) == 2, timeout_s=5)
+    return proc
+
+
+def wait_until(condition: Callable[[], bool], *, timeout_s: float) -> float:
+    """Poll until ``condition`` holds; return how long it took."""
+    start = time.monotonic()
+    while not condition():
+        if time.monotonic() - start > timeout_s:
+            raise TimeoutError(f"condition not met within {timeout_s} s")
+        time.sleep(0.05)
+    return time.monotonic() - start
+
+
+def assert_back_to_baseline() -> None:
+    _, elapsed = order()
+    assert elapsed < 0.1, f"lab still slow after cleanup: {elapsed:.3f} s"
+
+
+def test_cli_fault_slows_the_lab_and_expires_after_its_duration() -> None:
+    proc = start_fault(duration_s=2)
+    _, elapsed = order()
+    assert elapsed >= 0.2  # 100 ms each way
+    assert proc.wait(timeout=10) == 0
+    assert toxics_on("orders-inventory") == []
+    assert_back_to_baseline()
+
+
+def test_ctrl_c_removes_the_fault_within_one_second() -> None:
+    proc = start_fault(duration_s=60)
+    proc.send_signal(signal.SIGINT)
+    assert wait_until(lambda: toxics_on("orders-inventory") == [], timeout_s=1) < 1
+    proc.wait(timeout=5)
+    assert_back_to_baseline()
+
+
+def test_kill_9_fault_is_removed_by_the_watchdog_within_lease_plus_one_second() -> None:
+    proc = start_fault(duration_s=60)
+    proc.kill()  # SIGKILL: the CLI gets no chance to clean up
+    proc.wait(timeout=5)
+    took = wait_until(lambda: toxics_on("orders-inventory") == [], timeout_s=6)
+    # Lease 5 s counts from the last heartbeat, sent at most 1 s before the kill.
+    assert 3.5 <= took < 6
+    assert_back_to_baseline()

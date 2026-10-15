@@ -56,7 +56,10 @@ jobs:
         with:
           version: "0.12.17"
           enable-cache: true
-          cache-dependency-glob: lab/uv.lock
+          # the cleanup tests also run the backend fault CLI
+          cache-dependency-glob: |
+            lab/uv.lock
+            backend/uv.lock
       - run: uv sync --locked
         working-directory: lab
       - run: make integration

@@ -12,6 +12,8 @@ check:
 fmt:
 	@for p in $(PROJECTS); do (cd $$p && uv run ruff format . && uv run ruff check --fix .); done
 
-# Acceptance tests against the real Docker Compose lab (needs Docker).
+# Acceptance tests against the real Docker Compose lab (needs Docker). The backend venv is
+# synced too, because the cleanup tests run the real fault CLI.
 integration:
+	cd backend && uv sync --locked -q
 	cd lab && uv run pytest -m integration -v
