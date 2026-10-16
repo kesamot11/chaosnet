@@ -279,3 +279,25 @@ that the parts of a prediction agree with each other, and follow the request thr
 every retry, not just one attempt.
 
 Also learned: a timeout turns gradual slowness into a sudden outage (a "cliff").
+
+---
+
+## 2026-10-16: Sprint 2 interview check
+
+Multiple-choice quiz: **9/10** (missed: what the watchdog healthcheck checks).
+Own-words questions:
+
+- *What is the watchdog for?* Needed a reminder, then correct: a safety net that
+  removes faults when their owner (the CLI) stops sending heartbeats.
+- *What does its healthcheck check?* **Weak spot.** Mixed up what checks what. Each
+  container's healthcheck checks only itself; the watchdog's checks that its background
+  loop is still running. The point: a process can be alive and answer `200` while the
+  part that does the real work is dead (liveness vs. actual function).
+- *Why did +300 ms on the way back cause 100 % errors?* Correct on my own: 600 ms round
+  trip > 0.5 s timeout on every attempt; with retries users wait 1.5 s for a 504. A
+  timeout turns slowness into an outage.
+- *Why retry GET but not POST after a ReadError?* Correct on my own: the request was
+  already sent and the client cannot know whether the server processed it; repeating a
+  POST could pay twice. (Term: GET is idempotent, POST is not.)
+
+Revisit the watchdog healthcheck in the Sprint 3 check.
