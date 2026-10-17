@@ -58,6 +58,15 @@ class Store:
         self.db.execute(SCHEMA)
         self.db.commit()
 
+    def close(self) -> None:
+        self.db.close()
+
+    def __enter__(self) -> Store:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
     def create(self, name: str, spec: dict[str, Any]) -> Experiment:
         """Store a new ``pending`` experiment, unless another one is still running."""
         running = self.running()
