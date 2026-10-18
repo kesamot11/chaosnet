@@ -2,7 +2,11 @@
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field, model_validator
+
+from chaosnet.faults import Direction
 
 
 class State(StrEnum):
@@ -66,3 +70,41 @@ def judge(inject: dict[str, Any], hypothesis: Hypothesis) -> Verdict:
             f"error rate {(err_rate * 100):.1f} % > {(hypothesis.max_error_rate * 100):.1f} %"
         )
     return Verdict(len(reasons) == 0, reasons)
+
+
+# --- the experiment definition: the body of POST /experiments (Sprint 3 decision 5) ----
+
+
+class FaultSpec(BaseModel):
+    kind: Literal["latency", "bandwidth", "reset_peer"]
+    link: str
+    direction: Direction = "both"
+    ms: int | None = Field(default=None, gt=0)  # latency
+    kbps: int | None = Field(default=None, gt=0)  # bandwidth
+
+    @model_validator(mode="after")
+    def value_matches_kind(self) -> FaultSpec:
+        if self.kind == "latency" and self.ms is None:
+            raise ValueError("a latency fault needs ms")
+        if self.kind == "bandwidth" and self.kbps is None:
+            raise ValueError("a bandwidth fault needs kbps")
+        return self
+
+
+class LoadSpec(BaseModel):
+    rate: float = Field(gt=0)  # requests per second, open model
+    body: dict[str, Any] = {}
+
+
+class PhasesSpec(BaseModel):
+    baseline: float = Field(gt=0)  # seconds
+    inject: float = Field(gt=0)
+    recover: float = Field(gt=0)
+
+
+class ExperimentSpec(BaseModel):
+    name: str
+    fault: FaultSpec
+    load: LoadSpec
+    phases_s: PhasesSpec
+    hypothesis: Hypothesis
