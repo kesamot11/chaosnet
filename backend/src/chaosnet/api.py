@@ -23,7 +23,7 @@ from chaosnet.experiments import ExperimentSpec, LoadSpec, State
 from chaosnet.fault_cli import send_heartbeat
 from chaosnet.faults import FaultDriver
 from chaosnet.loadgen import run_load, summarize
-from chaosnet.runner import Runner
+from chaosnet.runner import Runner, reconcile
 from chaosnet.store import RUNNING, Experiment, ExperimentAlreadyRunning, Store
 
 # Builds the runner for one experiment; the load (rate, body) differs per experiment.
@@ -97,6 +97,7 @@ async def serve() -> None:
     ):
         with Store(os.environ.get("CHAOSNET_DB", "chaosnet.db")) as store:
             driver = FaultDriver(control, toxiproxy)
+            await reconcile(store, driver)  # cleanup layer 2, after a crash (#55)
 
             async def heartbeat() -> None:
                 await send_heartbeat(control, watchdog)

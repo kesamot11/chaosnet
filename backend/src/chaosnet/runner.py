@@ -105,7 +105,7 @@ async def reconcile(store: Store, driver: FaultDriver) -> None:
     try:
         await driver.remove_all()
     except httpx.ConnectError:
-        pass  # toxiproxy isnt running so there are no toxics
+        pass  # toxiproxy isn't running so there are no toxics
     experiments = store.list()
     for e in experiments:
         if e.state in RUNNING:
