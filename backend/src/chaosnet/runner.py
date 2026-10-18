@@ -13,9 +13,11 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+import httpx
+
 from chaosnet.experiments import ExperimentSpec, FaultSpec, State, judge
 from chaosnet.faults import Fault, FaultDriver
-from chaosnet.store import Store
+from chaosnet.store import RUNNING, Store
 
 # Runs load for the given number of seconds and returns the load generator summary.
 Measure = Callable[[float], Awaitable[dict[str, Any]]]
@@ -96,3 +98,15 @@ class Runner:
             except Exception:
                 pass  # the watchdog being down must not stop the experiment
             await asyncio.sleep(self.heartbeat_interval_s)
+
+
+async def reconcile(store: Store, driver: FaultDriver) -> None:
+    """Run on controller startup: make the records and the lab tell the truth again (#55)."""
+    try:
+        await driver.remove_all()
+    except httpx.ConnectError:
+        pass  # toxiproxy isn't running so there are no toxics
+    experiments = store.list()
+    for e in experiments:
+        if e.state in RUNNING:
+            store.set_state(e.id, State.ABORTED, f"controller restarted during {e.state}")
