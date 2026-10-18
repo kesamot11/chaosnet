@@ -212,3 +212,98 @@ as a POST can apply it twice, and the client cannot tell where the connection br
   longer. A crash of the watchdog *and* the control plane together is not covered.
 - Non-GET requests fail fast (503/504) instead of being retried after a cut connection,
   so a POST can fail where a retry might have succeeded. Correctness over availability.
+
+---
+
+## ADR-004: Experiment controller: records, storage, concurrency and API
+
+- **Status:** Accepted
+- **Date:** 2026-10-18 (decided in Sprint 3 planning on 2026-10-16/17 and during Sprint 3)
+- **Issues:** #50–#56
+- **Decided by:** Tomáš; reasons below are his, recorded from the discussion
+- **Amends:** ADR-001, layer 2 (see decision 8)
+
+### Context
+
+Before Sprint 3 an experiment took three terminals: the fault CLI, the load generator and
+a notebook for the numbers. The controller (M3) turns that into one request: it runs the
+phases, keeps the results and cleans up. It has to survive its own crash without lying
+about what happened.
+
+### Decisions
+
+**1. An interrupted experiment becomes `aborted` with a reason; it is never deleted.**
+`aborted` (someone or something stopped it) is separate from `failed` (something broke,
+such as a fault that cannot be added).
+*Reason:* Tomáš first proposed deleting it, then asked whether a record left in `inject`
+does not already say "unfinished". It does not: `inject` means "running right now", so a
+dead experiment would look alive forever and block the lab (decision 3). Deleting would
+lose the evidence that a crash happened and the phases that were measured.
+
+**2. SQLite through the standard library `sqlite3`; no ORM.**
+*Reason:* the database is one file and needs no server to install or run. One user on
+one machine needs nothing more.
+
+**3. Only one experiment runs at a time; a second `POST` gets `409`.**
+*Reason:* there is only one lab. Two faults at once would mix: with +300 ms on
+gateway→orders added during EXP-002, its numbers would show the sum of both faults.
+
+**4. The controller is an HTTP API (FastAPI, async handlers), not a command.**
+*Reason:* the UI in M4 needs an API anyway, a long-lived server can send heartbeats, and it
+matches ADR-001 (one FastAPI process, experiments as asyncio tasks). Async handlers keep
+all database access on the event loop thread, so one SQLite connection needs no locks.
+
+**5. One request describes the whole experiment, including a hypothesis.**
+`{name, fault{kind, link, direction, ms|kbps}, load{rate, body}, phases_s{baseline,
+inject, recover}, hypothesis{max_p95_ms, max_error_rate}}`. The result has a verdict: did
+the inject phase stay within the hypothesis, and if not, why.
+*Reason:* Tomáš's fields were "metadata about the fault" and "expected results"; the
+expected results became the hypothesis. The healthy state is measured (the baseline
+phase), never sent, so it cannot be wrong.
+
+**6. Three separate load runs; the fault window equals the inject measurement window.**
+The fault is added right before the inject run and removed right after it, in `finally`.
+*Reason:* the inject numbers then contain only behaviour under the fault. Tomáš proposed
+one continuous load sliced by time, which would also show the transitions; deferred to
+#62, because it needs latency stored over time (M4).
+
+**7. The load target is fixed by configuration, never taken from a request.**
+*Reason:* with a target in the request, anything that can reach the API (another program
+on the machine, possibly a web page) could aim the load generator at any host (DoS) or at
+the local network (SSRF). Whoever can set the controller's environment already controls
+the machine.
+
+**8. Reconcile on startup resets all toxics and aborts every running experiment.**
+It uses `remove_all` (the same `/reset` as the watchdog), not only `chaosnet-` toxics. If
+Toxiproxy is down, the records are fixed anyway.
+*Reason:* simpler, and today nothing else creates toxics in the lab. A stopped Toxiproxy
+holds no toxics (they live in its memory), so it must not block the records.
+*This amends ADR-001 layer 2*, which planned to persist every fault with an owner and an
+`expires_at` and to reconcile periodically. With one experiment at a time (decision 3),
+every toxic at startup is an orphan, so owners are not needed. While the controller runs,
+the runner's `finally` (layer 1) and the watchdog (layer 3) cover it.
+
+### Alternatives rejected
+
+| Decision | Rejected | Why |
+|---|---|---|
+| 1 | delete the record | loses the evidence and the phases already measured |
+| 1 | leave it in its phase | a dead experiment looks alive and blocks the lab |
+| 2 | PostgreSQL | a server to run for one user and one file of data |
+| 3 | several at once | faults mix and the measurements become meaningless |
+| 4 | `chaosnet-experiment run spec.json` | the UI would need an API later anyway |
+| 6 | one continuous load sliced by time | needs latency over time; deferred to #62 |
+| 7 | `target` in the request | turns the tool into a DoS/SSRF tool for anyone who reaches it |
+| 8 | remove only `chaosnet-` toxics | a loop instead of one call, for a case that does not occur today |
+| 8 | per-fault records with `expires_at` | not needed with one experiment at a time |
+
+### Consequences
+
+- A record is never in a running state unless an experiment is actually running, after
+  any crash (verified: `kill -9` during inject, then restart, gives `aborted`,
+  "controller restarted during inject"; integration test in #56).
+- Reconcile also removes toxics added by hand, for example with `toxiproxy-cli` while
+  debugging. Revisit if another tool ever shares the lab.
+- Stopping the server (Ctrl+C) is recorded as "aborted by user" as well.
+- An unknown link is found only when inject starts, after the baseline was measured.
+- The API has no authentication; that is acceptable only on `127.0.0.1` (ADR-002).
