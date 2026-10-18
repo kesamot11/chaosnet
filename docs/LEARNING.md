@@ -364,3 +364,27 @@ Run alternately, both measure the same.
 - A wrong prediction that is tested is progress: it removes a suspect.
 - Choosing "investigate now" instead of "issue for later" changed the conclusion; with
   the issue we would still believe the controller measures differently.
+
+---
+
+## 2026-10-18: Sprint 3 interview check
+
+Multiple-choice quiz: **10/10** (including the watchdog healthcheck, missed last time).
+Own-words questions:
+
+- *What does the watchdog's healthcheck check?* The reason on my own: a watchdog that
+  looks healthy but does nothing would leave faults behind. Needed the precise *what*:
+  that the `watch` loop is still running, not only that the process answers HTTP.
+- *`kill -9` of the controller mid-experiment: what happens to the fault and the
+  record?* Reconcile on restart on my own. **Weak spot:** first said the fault stays
+  until the restart. The watchdog removes it about 5 s after the last heartbeat, whether
+  or not the controller ever restarts. It knows nothing about faults, only when the last
+  heartbeat came (a dead man's switch). Whichever layer comes first cleans up. Retold
+  correctly at the end.
+- *Why did the controller seem to measure a shorter tail (EXP-003)?* On my own: tested
+  hypotheses one at a time; it was the time of measurement. Correction: the methods ran
+  alternately, not at the same time. (Terms: confounding variable, interleaving.)
+- *Why is the load target not in the request?* On my own: so that anyone who reaches
+  the API cannot use it for a DoS. Also SSRF; trust boundary.
+
+Revisit the controller-crash timeline (watchdog vs. reconcile) in the Sprint 4 check.

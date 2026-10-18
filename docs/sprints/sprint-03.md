@@ -47,6 +47,10 @@ solution himself (`reconcile`).
 
 **Self-rated understanding of Sprint 3 code:** 3/5.
 
+**Interview check:** quiz 10/10; own words 4 questions, weak spot: what removes the
+fault after a controller crash (the watchdog, within ~5 s, not the restart). Details in
+`docs/LEARNING.md`.
+
 ## Actions for Sprint 4
 
 1. **Design before syntax** for every task Tomáš writes: Claude gives the goal and the
