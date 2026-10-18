@@ -196,10 +196,59 @@ jitter some attempts would succeed near the boundary. One request type, one mach
 "It should be the same, because the controller only automates what was done by hand."
 Same means: inject p50 within **306.9 ± 5 ms** (301.9 – 311.9 ms).
 
-**Setup (planned):** lab and controller at `01d8346`, same hop timeouts and retries as
-EXP-002. Fault: +300 ms latency, `orders-inventory`, direction `request` (as EXP-002 A).
+**Setup:** lab and controller at `60f69a6` (no code change since `01d8346`), same hop
+timeouts and retries as EXP-002. Fault: +300 ms latency, `orders-inventory`, direction
+`request` (as EXP-002 A). All load from the Mac at 50 req/s, `--timeout 5`.
 
-**Method (planned):** 5 experiments through `POST /experiments`, each 50 req/s with
-baseline 30 s, inject 30 s, recover 30 s. Compare the inject p50 (median across 5 runs)
-with EXP-002 A. The baseline phase precedes inject, so it takes the place of EXP-002's
-discarded warm-up run.
+**Method:** 5 experiments through `POST /experiments`, each with baseline 30 s, inject
+30 s, recover 30 s (2026-10-18 13:27–13:35 UTC, after the prediction PR #67 was merged).
+The baseline phase precedes inject, so it takes the place of EXP-002's discarded
+warm-up run. Latency of all requests, ms, median across runs [min – max].
+
+**Results:** all 22 500 requests `ok`; 0 toxics left after every run; every verdict passed.
+
+| | p50 | p95 | p99 |
+|---|---|---|---|
+| EXP-002 A, inject, manual (2026-10-15) | 306.9 [306.5 – 307.4] | 311.6 [311.3 – 312.0] | 313.5 [312.7 – 314.5] |
+| **EXP-003, inject, controller** | **305.2** [305.2 – 305.9] | 306.4 [306.3 – 307.3] | 307.4 [307.1 – 308.2] |
+| EXP-003, baseline, controller | 4.49 [4.46 – 5.38] | 5.57 [5.48 – 6.25] | 6.93 [6.67 – 7.37] |
+| EXP-003, recover, controller | 4.55 [4.49 – 5.45] | 6.35 [6.06 – 6.92] | 7.28 [6.88 – 7.53] |
+
+**Prediction:** inject p50 within 306.9 ± 5 ms. **Correct:** 305.2 ms, −1.7 ms.
+
+**Investigation of the remaining difference.** The p95 was lower through the controller
+in inject (306.4 vs 311.6) and in baseline (5.57 vs 11.10 in EXP-001b). Tomáš chose to
+investigate before closing #58. Each check changed one thing; predictions are Tomáš's,
+made before each run.
+
+| # | Check (same day) | Prediction | Result |
+|---|---|---|---|
+| 1 | manual method again, inject (14:04–14:07, warm-up + 5 runs) | p50 closer to the controller's 305.2 than to 306.9 | **correct:** p50 305.7 [305.6 – 305.9], but p95 still 310.6 [310.1 – 311.2] |
+| 2 | manual method, baseline (14:09–14:12) | none made | p95 11.89 [11.86 – 11.94], like EXP-001b, not like the controller |
+| 3 | `localhost` (manual) vs `127.0.0.1` (controller), alternating 4 + 4 runs (14:22–14:26) | explains the whole difference | **wrong:** p95 11.79 vs 11.78 |
+| 4 | one process, new client per run vs one shared client (as the controller), alternating 4 + 4 (14:27–14:32) | shared client faster | **wrong:** p95 11.82 vs 11.80 |
+| 5 | controller and manual alternating, 3 + 3 runs (14:38–14:41) | none made | **same:** controller baseline p95 11.67 / 11.98 / 11.96, manual 11.86 / 11.76 / 11.03 |
+
+**Interpretation:**
+
+- **The controller measures the same as the manual method.** Run alternately, the two
+  cannot be told apart (check 5).
+- **The difference was time, not method.** The controller runs (13:27–13:35) were not
+  interleaved with the manual ones (from 14:04). Between the two, the baseline p95 of
+  the same lab doubled from ~5.6 to ~11.8 ms with no change to code or configuration.
+  The cause of that drift is unknown (machine load, power state, Docker VM); it was not
+  investigated.
+- **Comparing two methods needs alternating runs.** Back-to-back blocks, even 30 minutes
+  apart on the same day, can attribute machine drift to the method. Checks 1 and 2 alone
+  pointed at the controller; only check 5 removed the confound.
+- Two plausible causes were ruled out by measurement: name resolution (`localhost`) and
+  connection reuse.
+
+**Decision:** use the controller for experiments from now on. Compare results only
+within one session, and alternate runs when the expected effect is a few ms (as already
+decided in EXP-001 for effects below ~50 ms).
+
+**Limitations:** checks 3–5 had 3–4 runs per arm; enough to rule out a 6 ms effect, not
+a sub-millisecond one. No fault in checks 2–5, so the inject-phase p95 difference
+(306.4 vs 310.6) is attributed to the same drift by analogy, not by its own
+interleaved test.

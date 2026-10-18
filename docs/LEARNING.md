@@ -347,3 +347,20 @@ Python things I learned on the way:
   name it in `except` the file needs its own `import httpx`.
 - **Read the pytest diff**: left is what my code returned, right is what the test
   expects.
+
+---
+
+## 2026-10-18: EXP-003, the difference that was time
+
+The controller seemed to measure a shorter tail than the manual method (baseline p95
+5.6 vs 11.9 ms). Three suspects, each tested by changing one thing: name resolution,
+connection reuse, and finally *when* each was measured. Only the last one mattered: the
+controller ran at 13:30 and the manual runs after 14:00, and the Mac drifted in between.
+Run alternately, both measure the same.
+
+- **Confounding variable:** when two things change at once (method *and* time), the
+  result cannot say which one caused the difference.
+- **Interleave A and B** (A, B, A, B …) so both see the same conditions.
+- A wrong prediction that is tested is progress: it removes a suspect.
+- Choosing "investigate now" instead of "issue for later" changed the conclusion; with
+  the issue we would still believe the controller measures differently.
