@@ -186,3 +186,20 @@ Generator send lag max ≤ 9.5 ms in every run.
 
 **Limitations:** constant latency without jitter, so the cliff is perfectly sharp; with
 jitter some attempts would succeed near the boundary. One request type, one machine.
+
+## EXP-003: EXP-002 A through the controller (#58)
+
+**Question:** does the experiment controller measure the same as the manual method
+(fault CLI + load generator)? Before trusting its numbers, re-run a known experiment.
+
+**Prediction (Tomáš, 2026-10-18, before any measurement, translated from Czech):**
+"It should be the same, because the controller only automates what was done by hand."
+Same means: inject p50 within **306.9 ± 5 ms** (301.9 – 311.9 ms).
+
+**Setup (planned):** lab and controller at `01d8346`, same hop timeouts and retries as
+EXP-002. Fault: +300 ms latency, `orders-inventory`, direction `request` (as EXP-002 A).
+
+**Method (planned):** 5 experiments through `POST /experiments`, each 50 req/s with
+baseline 30 s, inject 30 s, recover 30 s. Compare the inject p50 (median across 5 runs)
+with EXP-002 A. The baseline phase precedes inject, so it takes the place of EXP-002's
+discarded warm-up run.
