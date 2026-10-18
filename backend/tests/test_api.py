@@ -118,6 +118,19 @@ def test_abort_right_after_start(tmp_path: Path) -> None:
     run(tmp_path, test)
 
 
+def test_failed_experiment_shows_why_and_frees_the_lab(tmp_path: Path) -> None:
+    async def test(client: httpx.AsyncClient, lab: Lab) -> None:
+        bad = {**SPEC, "fault": {**SPEC["fault"], "link": "no-such-link"}}
+        exp = await wait_for(
+            client, (await client.post("/experiments", json=bad)).json()["id"], "failed"
+        )
+        assert "no-such-link" in exp["reason"]
+        assert (await client.post(f"/experiments/{exp['id']}/abort")).status_code == 409
+        assert (await client.post("/experiments", json=SPEC)).status_code == 201
+
+    run(tmp_path, test)
+
+
 def test_abort_of_a_finished_experiment_is_refused(tmp_path: Path) -> None:
     async def test(client: httpx.AsyncClient, lab: Lab) -> None:
         exp = (await client.post("/experiments", json=SPEC)).json()
