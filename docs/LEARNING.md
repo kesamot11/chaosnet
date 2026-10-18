@@ -301,3 +301,25 @@ Own-words questions:
   POST could pay twice. (Term: GET is idempotent, POST is not.)
 
 Revisit the watchdog healthcheck in the Sprint 3 check.
+
+---
+
+## 2026-10-18: Writing `_inject` (the inject phase of the runner)
+
+Mistakes in my first version, all four caught by the tests or by pyright:
+
+- **Missing `await`, second time** (first: `asyncio.sleep` in Sprint 2). Without it an
+  `async` function is only prepared, never run. Pyright says so before the tests do
+  (`"CoroutineType[...]" is not iterable`), so run `make check` first.
+- **Possibly unbound variable.** If adding the fault fails, `faults = await ...` never
+  assigns, and the cleanup loop in `finally` crashes with `UnboundLocalError`, which
+  hides the real error. Fix: `faults = []` before `try`.
+- **Removed from the wrong thing.** `faults.remove(f)` drops an item from a Python
+  list; the toxic stays in Toxiproxy. The list is only a receipt of what was added.
+- **Discarded the task handle.** `asyncio.create_task` returns the only way to cancel
+  the task later, so heartbeats would have run forever and disabled the watchdog.
+
+How to know what to call without reading the whole codebase: look at the class's
+`__init__` (its toolbox), then at the signature of each thing I call: is it `async`?
+What does it take? What does it return? Work backwards from what I need (here: a
+`dict` to save) to who produces it.

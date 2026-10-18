@@ -3,8 +3,11 @@
 FakeToxiproxy answers exactly like the real Toxiproxy 2.12.0 (status codes and bodies
 were recorded from the lab on 2026-10-14): 200 on create, 409 for an existing toxic
 name, 404 for an unknown proxy or toxic, 204 on delete and reset.
+
+Lab stands in for the load generator and the watchdog in runner and API tests.
 """
 
+import asyncio
 import json
 from typing import Any
 
@@ -53,3 +56,32 @@ class FakeToxiproxy:
 
     def posted(self) -> list[dict[str, Any]]:
         return [json.loads(r.content) for r in self.requests if r.method == "POST" and r.content]
+
+
+HEALTHY = {
+    "scheduled": 10,
+    "sent": 10,
+    "outcomes": {"ok": 10},
+    "latency_ms": {"all": {"p50": 5, "p95": 10, "p99": 12, "p100": 14}, "ok": None},
+}
+
+
+class Lab:
+    """Fake load and heartbeat; records what was active while each phase was measured."""
+
+    def __init__(self, toxiproxy: FakeToxiproxy, fail_in_phase: int | None = None) -> None:
+        self.toxiproxy = toxiproxy
+        self.fail_in_phase = fail_in_phase
+        self.measured: list[tuple[float, int, int]] = []  # (seconds, toxics at start, at end)
+        self.heartbeats = 0
+
+    async def measure(self, seconds: float) -> dict[str, Any]:
+        start = len(self.toxiproxy.toxics[LINK])
+        if self.fail_in_phase == len(self.measured):
+            raise RuntimeError("load generator crashed")
+        await asyncio.sleep(seconds)
+        self.measured.append((seconds, start, len(self.toxiproxy.toxics[LINK])))
+        return HEALTHY
+
+    async def heartbeat(self) -> None:
+        self.heartbeats += 1

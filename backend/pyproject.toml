@@ -7,8 +7,10 @@ authors = [
 ]
 requires-python = ">=3.14,<3.15"
 dependencies = [
+    "fastapi>=0.143.0",
     "httpx>=0.28.1",
     "pydantic>=2.14.1",
+    "uvicorn>=0.54.0",
 ]
 
 [dependency-groups]
@@ -30,6 +32,7 @@ line-length = 100
 select = ["E", "F", "I", "B", "UP"]
 
 [project.scripts]
+chaosnet-api = "chaosnet.api:main"
 chaosnet-fault = "chaosnet.fault_cli:main"
 
 [tool.pyright]
