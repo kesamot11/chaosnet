@@ -5,7 +5,7 @@ from typing import Any
 
 import httpx
 import pytest
-from fakes import API, LINK, FakeToxiproxy
+from fakes import API, LINK, FakeToxiproxy, Lab
 
 from chaosnet.experiments import State
 from chaosnet.faults import FaultDriver
@@ -19,33 +19,6 @@ SPEC: dict[str, Any] = {
     "phases_s": {"baseline": 0.03, "inject": 0.1, "recover": 0.03},
     "hypothesis": {"max_p95_ms": 500, "max_error_rate": 0.01},
 }
-HEALTHY = {
-    "scheduled": 10,
-    "sent": 10,
-    "outcomes": {"ok": 10},
-    "latency_ms": {"all": {"p50": 5, "p95": 10, "p99": 12, "p100": 14}, "ok": None},
-}
-
-
-class Lab:
-    """Fake load and heartbeat; records what was active while each phase was measured."""
-
-    def __init__(self, toxiproxy: FakeToxiproxy, fail_in_phase: int | None = None) -> None:
-        self.toxiproxy = toxiproxy
-        self.fail_in_phase = fail_in_phase
-        self.measured: list[tuple[float, int, int]] = []  # (seconds, toxics at start, at end)
-        self.heartbeats = 0
-
-    async def measure(self, seconds: float) -> dict[str, Any]:
-        start = len(self.toxiproxy.toxics[LINK])
-        if self.fail_in_phase == len(self.measured):
-            raise RuntimeError("load generator crashed")
-        await asyncio.sleep(seconds)
-        self.measured.append((seconds, start, len(self.toxiproxy.toxics[LINK])))
-        return HEALTHY
-
-    async def heartbeat(self) -> None:
-        self.heartbeats += 1
 
 
 @pytest.fixture

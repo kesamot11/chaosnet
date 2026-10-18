@@ -68,6 +68,22 @@ uv run chaosnet-fault clear    # remove all faults
 
 Links: `gateway-orders`, `orders-inventory`. Fault kinds: `latency`, `bandwidth`, `reset_peer`.
 
+Run whole experiments (baseline, inject, recover, verdict) through the controller API,
+on `127.0.0.1:8476` (`CHAOSNET_PORT`). Load always goes to the lab gateway (`TARGET_URL`):
+
+```bash
+cd backend
+uv run chaosnet-api
+curl -X POST localhost:8476/experiments -H 'content-type: application/json' -d '{
+  "name": "orders-inventory +300 ms",
+  "fault": {"kind": "latency", "link": "orders-inventory", "direction": "both", "ms": 300},
+  "load": {"rate": 20, "body": {"item_id": "42"}},
+  "phases_s": {"baseline": 10, "inject": 10, "recover": 10},
+  "hypothesis": {"max_p95_ms": 500, "max_error_rate": 0.01}}'
+curl localhost:8476/experiments/1
+curl -X POST localhost:8476/experiments/1/abort
+```
+
 `make integration` runs the acceptance tests against a real Compose lab (needs Docker).
 
 ## License
