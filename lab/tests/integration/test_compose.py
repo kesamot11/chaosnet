@@ -1,4 +1,4 @@
-"""Acceptance tests for #13 against the real Docker Compose lab.
+"""Acceptance tests (#13, #34, #56) against the real Docker Compose lab.
 
 Run with `make integration`. Uses its own Compose project and port, so it does not
 touch a lab you are running for development.
@@ -11,6 +11,7 @@ import subprocess
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -278,3 +279,102 @@ def test_kill_9_fault_is_removed_by_the_watchdog_within_lease_plus_one_second(
     # Lease 5 s counts from the last heartbeat, sent at most 1 s before the kill.
     assert 3.5 <= took < 6
     assert_back_to_baseline()
+
+
+# --- the experiment controller (#56) ------------------------------------------------------
+
+CONTROLLER = LAB_DIR.parent / "backend" / ".venv" / "bin" / "chaosnet-api"
+API_URL = "http://127.0.0.1:18476"
+EXPERIMENT = {
+    "name": "integration",
+    "fault": {"kind": "latency", "link": "orders-inventory", "direction": "both", "ms": 100},
+    "load": {"rate": 10, "body": {"item_id": "42"}},
+    "phases_s": {"baseline": 2, "inject": 2, "recover": 2},
+    "hypothesis": {"max_p95_ms": 500, "max_error_rate": 0.01},
+}
+LONG = {**EXPERIMENT, "phases_s": {"baseline": 1, "inject": 60, "recover": 1}}
+
+StartController = Callable[[], subprocess.Popen[bytes]]
+
+
+@pytest.fixture
+def start_controller(tmp_path: Path) -> Iterator[StartController]:
+    """Start the real controller; every start in one test shares one database, so a
+    restart sees what the previous process left behind. Same teardown as start_fault."""
+    env = {
+        **CLI_ENV,
+        "TARGET_URL": f"http://127.0.0.1:{PORT}/orders",
+        "CHAOSNET_PORT": API_URL.rsplit(":", 1)[1],
+        "CHAOSNET_DB": str(tmp_path / "chaosnet.db"),
+    }
+    procs: list[subprocess.Popen[bytes]] = []
+
+    def up() -> bool:
+        try:
+            return httpx.get(f"{API_URL}/experiments", timeout=1).is_success
+        except httpx.TransportError:
+            return False
+
+    def start() -> subprocess.Popen[bytes]:
+        procs.append(subprocess.Popen([str(CONTROLLER)], env=env))
+        wait_until(up, timeout_s=10)
+        return procs[-1]
+
+    yield start
+    for proc in procs:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)
+    httpx.post(f"http://127.0.0.1:{TOXIPROXY_PORT}/reset", timeout=5)
+
+
+def experiment(experiment_id: int) -> dict[str, Any]:
+    return httpx.get(f"{API_URL}/experiments/{experiment_id}", timeout=5).json()
+
+
+def start_experiment(spec: dict[str, Any]) -> int:
+    res = httpx.post(f"{API_URL}/experiments", json=spec, timeout=5)
+    assert res.status_code == 201, res.text
+    return res.json()["id"]
+
+
+def test_experiment_runs_end_to_end(start_controller: StartController) -> None:
+    start_controller()
+    experiment_id = start_experiment(EXPERIMENT)
+    wait_until(lambda: experiment(experiment_id)["state"] == "completed", timeout_s=20)
+
+    exp = experiment(experiment_id)
+    p95 = {phase: r["latency_ms"]["all"]["p95"] for phase, r in exp["results"].items()}
+    assert set(p95) == {"baseline", "inject", "recover"}
+    # +100 ms each way on orders->inventory: every request waits at least 200 ms, but only
+    # during inject. (Not "baseline + 200": p95s of two distributions do not add up.)
+    assert p95["baseline"] < 100 and p95["inject"] >= 200 and p95["recover"] < 100, p95
+    assert exp["verdict"] is not None
+    assert toxics_on("orders-inventory") == []
+
+
+def test_second_experiment_is_refused_while_one_runs(start_controller: StartController) -> None:
+    start_controller()
+    experiment_id = start_experiment(LONG)
+    res = httpx.post(f"{API_URL}/experiments", json=EXPERIMENT, timeout=5)
+    assert res.status_code == 409
+    res = httpx.post(f"{API_URL}/experiments/{experiment_id}/abort", timeout=10)
+    assert res.json()["state"] == "aborted"
+
+
+def test_kill_9_during_inject_watchdog_cleans_up_and_restart_aborts(
+    start_controller: StartController,
+) -> None:
+    proc = start_controller()
+    experiment_id = start_experiment(LONG)
+    wait_until(lambda: len(toxics_on("orders-inventory")) == 2, timeout_s=10)
+
+    proc.kill()  # SIGKILL: no finally, no lifespan shutdown
+    proc.wait(timeout=5)
+    wait_until(lambda: toxics_on("orders-inventory") == [], timeout_s=7)  # layer 3
+    assert_back_to_baseline()
+
+    start_controller()  # layer 2: reconcile on startup
+    exp = experiment(experiment_id)
+    assert (exp["state"], exp["reason"]) == ("aborted", "controller restarted during inject")
+    start_experiment(EXPERIMENT)  # the lab is free again

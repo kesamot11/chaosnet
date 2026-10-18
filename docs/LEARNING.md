@@ -323,3 +323,27 @@ How to know what to call without reading the whole codebase: look at the class's
 `__init__` (its toolbox), then at the signature of each thing I call: is it `async`?
 What does it take? What does it return? Work backwards from what I need (here: a
 `dict` to save) to who produces it.
+
+---
+
+## 2026-10-18: Writing `reconcile` (first function I designed myself)
+
+Plan first, in words, then code. My first plan only looked for experiments in
+`inject`; walking through "where can a crash happen?" found `pending`, `baseline` and
+`recover` too. Lesson: list the scenarios before the code.
+
+Python things I learned on the way:
+
+- **A `set` cannot hold a `dict`** (or anything containing one). A set files items by
+  their hash; if an item could change, its hash would change and the set would look in
+  the wrong place. So only unchangeable things are hashable (`int`, `str`, `tuple`), and
+  things that are equal must have the same hash, which is why it is not done by
+  variable name or memory address for dataclasses.
+- **A module-level name is not an attribute of an object.** `RUNNING` lives in the file
+  `store.py`, not inside a `Store` object, so it is imported, not `store.RUNNING`.
+- **`try` only catches what happens inside it.** I first wrapped the wrong lines; the
+  traceback line number (`runner.py:103`) shows which line actually failed.
+- **Each file has its own names.** An exception can fly in from `httpx` code, but to
+  name it in `except` the file needs its own `import httpx`.
+- **Read the pytest diff**: left is what my code returned, right is what the test
+  expects.
