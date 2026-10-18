@@ -96,3 +96,8 @@ class Runner:
             except Exception:
                 pass  # the watchdog being down must not stop the experiment
             await asyncio.sleep(self.heartbeat_interval_s)
+
+
+async def reconcile(store: Store, driver: FaultDriver) -> None:
+    """Run on controller startup: make the records and the lab tell the truth again (#55)."""
+    raise NotImplementedError
