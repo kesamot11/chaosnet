@@ -62,12 +62,22 @@ class Runner:
             self.store.set_state(experiment_id, State.FAILED, reason=f"{type(e).__name__}: {e}")
 
     async def _inject(self, experiment_id: int, spec: ExperimentSpec) -> None:
-        """Tomáš: the inject phase. See tests/test_runner.py and the design in the docstring.
+        """Measure with the fault active; the fault window equals the measurement window.
 
-        Helpers: ``self._add_fault(spec.fault)``, ``self._heartbeats()``,
-        ``self.measure(seconds)``, ``self.store.save_result(...)``, ``self.driver.remove(f)``.
+        Heartbeats start before the fault, so the watchdog lease covers it from the
+        first moment. The finally block stops them and removes the fault on success,
+        error and cancellation alike.
         """
-        raise NotImplementedError
+        beats = asyncio.create_task(self._heartbeats())
+        faults: list[Fault] = []
+        try:
+            faults = await self._add_fault(spec.fault)
+            summary = await self.measure(spec.phases_s.inject)
+            self.store.save_result(experiment_id, State.INJECT, summary)
+        finally:
+            beats.cancel()
+            for f in faults:
+                await self.driver.remove(f)
 
     async def _add_fault(self, fault: FaultSpec) -> list[Fault]:
         if fault.kind == "latency":
