@@ -11,6 +11,11 @@ from chaosnet.experiments import LoadSpec
 from chaosnet.faults import FaultDriver
 from chaosnet.runner import Runner
 from chaosnet.store import Store
+from chaosnet.topology import Topology
+
+LAB_TOPOLOGY = Topology.model_validate_json(
+    (Path(__file__).parents[2] / "lab" / "topology.json").read_text()
+)
 
 SPEC: dict[str, Any] = {
     "name": "EXP-003",
@@ -24,14 +29,14 @@ SLOW = {**SPEC, "phases_s": {"baseline": 0.01, "inject": 5, "recover": 0.01}}
 Test = Callable[[httpx.AsyncClient, Lab], Awaitable[None]]
 
 
-def run(tmp_path: Path, test: Test) -> Lab:
+def run(tmp_path: Path, test: Test, transport: httpx.MockTransport | None = None) -> Lab:
     """Run ``test`` against the API, with fake Toxiproxy, load and watchdog behind it."""
     lab = Lab(FakeToxiproxy())
 
     async def go() -> None:
-        transport = httpx.MockTransport(lab.toxiproxy.handle)
+        toxiproxy_transport = transport or httpx.MockTransport(lab.toxiproxy.handle)
         with Store(tmp_path / "chaosnet.db") as store:
-            async with httpx.AsyncClient(transport=transport) as toxiproxy:
+            async with httpx.AsyncClient(transport=toxiproxy_transport) as toxiproxy:
                 driver = FaultDriver(toxiproxy, API)
 
                 def make_runner(_: LoadSpec) -> Runner:
@@ -39,7 +44,7 @@ def run(tmp_path: Path, test: Test) -> Lab:
                         store, driver, lab.measure, lab.heartbeat, heartbeat_interval_s=0.01
                     )
 
-                app = create_app(store, make_runner)
+                app = create_app(store, make_runner, LAB_TOPOLOGY, driver)
                 api = httpx.ASGITransport(app=app)
                 async with httpx.AsyncClient(transport=api, base_url="http://api") as client:
                     await test(client, lab)
@@ -120,11 +125,11 @@ def test_abort_right_after_start(tmp_path: Path) -> None:
 
 def test_failed_experiment_shows_why_and_frees_the_lab(tmp_path: Path) -> None:
     async def test(client: httpx.AsyncClient, lab: Lab) -> None:
-        bad = {**SPEC, "fault": {**SPEC["fault"], "link": "no-such-link"}}
+        del lab.toxiproxy.toxics[LINK]  # in the topology, but its proxy is gone
         exp = await wait_for(
-            client, (await client.post("/experiments", json=bad)).json()["id"], "failed"
+            client, (await client.post("/experiments", json=SPEC)).json()["id"], "failed"
         )
-        assert "no-such-link" in exp["reason"]
+        assert LINK in exp["reason"]
         assert (await client.post(f"/experiments/{exp['id']}/abort")).status_code == 409
         assert (await client.post("/experiments", json=SPEC)).status_code == 201
 
@@ -154,5 +159,40 @@ def test_list_and_unknown_experiment(tmp_path: Path) -> None:
 
         res = await client.get("/experiments/42")
         assert (res.status_code, res.json()["detail"]) == (404, "no experiment 42")
+
+    run(tmp_path, test)
+
+
+def test_topology_says_which_links_can_take_a_fault(tmp_path: Path) -> None:
+    async def test(client: httpx.AsyncClient, lab: Lab) -> None:
+        del lab.toxiproxy.toxics["gateway-orders"]  # proxy missing in Toxiproxy
+        topo = (await client.get("/topology")).json()
+        assert [s["name"] for s in topo["services"]] == ["gateway", "orders", "inventory"]
+        assert [(lk["from"], lk["to"], lk["name"], lk["available"]) for lk in topo["links"]] == [
+            ("gateway", "orders", "gateway-orders", False),
+            ("orders", "inventory", "orders-inventory", True),
+        ]
+
+    run(tmp_path, test)
+
+
+def test_topology_with_toxiproxy_down(tmp_path: Path) -> None:
+    def down(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    async def test(client: httpx.AsyncClient, lab: Lab) -> None:
+        topo = (await client.get("/topology")).json()
+        assert [lk["available"] for lk in topo["links"]] == [False, False]
+
+    run(tmp_path, test, transport=httpx.MockTransport(down))
+
+
+def test_experiment_on_a_link_outside_the_topology_is_rejected(tmp_path: Path) -> None:
+    async def test(client: httpx.AsyncClient, lab: Lab) -> None:
+        bad = {**SPEC, "fault": {**SPEC["fault"], "link": "orders-payments"}}
+        res = await client.post("/experiments", json=bad)
+        assert res.status_code == 422
+        assert "orders-payments" in res.json()["detail"]
+        assert (await client.get("/experiments")).json() == []  # nothing was stored
 
     run(tmp_path, test)
