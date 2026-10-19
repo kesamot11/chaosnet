@@ -13,6 +13,7 @@ import asyncio
 import os
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -21,17 +22,25 @@ from fastapi import FastAPI, HTTPException
 
 from chaosnet.experiments import ExperimentSpec, LoadSpec, State
 from chaosnet.fault_cli import send_heartbeat
-from chaosnet.faults import FaultDriver
+from chaosnet.faults import FaultDriver, FaultError
 from chaosnet.loadgen import run_load, summarize
 from chaosnet.runner import Runner, reconcile
 from chaosnet.store import RUNNING, Experiment, ExperimentAlreadyRunning, Store
+from chaosnet.topology import Topology
 
 # Builds the runner for one experiment; the load (rate, body) differs per experiment.
 MakeRunner = Callable[[LoadSpec], Runner]
 
 
-def create_app(store: Store, make_runner: MakeRunner) -> FastAPI:
+# The lab this controller runs against (#72); CHAOSNET_TOPOLOGY overrides it.
+LAB_TOPOLOGY = Path(__file__).parents[3] / "lab" / "topology.json"
+
+
+def create_app(
+    store: Store, make_runner: MakeRunner, topology: Topology, driver: FaultDriver
+) -> FastAPI:
     tasks: dict[int, asyncio.Task[None]] = {}
+    links = {link.name for link in topology.links}
 
     async def abort(experiment_id: int) -> None:
         task = tasks.get(experiment_id)
@@ -53,6 +62,11 @@ def create_app(store: Store, make_runner: MakeRunner) -> FastAPI:
 
     @app.post("/experiments", status_code=201)
     async def start(spec: ExperimentSpec) -> Experiment:
+        if spec.fault.link not in links:
+            # Found here, not after the baseline was measured (ADR-004 consequences).
+            raise HTTPException(
+                422, f"unknown link {spec.fault.link!r}, the topology has {sorted(links)}"
+            )
         try:
             exp = store.create(spec.name, spec.model_dump())
         except ExperimentAlreadyRunning as e:
@@ -61,6 +75,17 @@ def create_app(store: Store, make_runner: MakeRunner) -> FastAPI:
         tasks[exp.id] = task
         task.add_done_callback(lambda _: tasks.pop(exp.id, None))
         return exp
+
+    @app.get("/topology")
+    async def get_topology() -> dict[str, Any]:
+        try:
+            proxies: set[str] = await driver.links()
+        except httpx.TransportError, FaultError:
+            proxies = set()  # Toxiproxy down: no link can take a fault right now
+        result = topology.model_dump(by_alias=True)
+        for link, data in zip(topology.links, result["links"], strict=True):
+            data |= {"name": link.name, "available": link.name in proxies}
+        return result
 
     @app.get("/experiments")
     async def list_experiments() -> list[Experiment]:
@@ -118,7 +143,9 @@ async def serve() -> None:
 
                 return Runner(store, driver, measure, heartbeat)
 
-            app = create_app(store, make_runner)
+            path = Path(os.environ.get("CHAOSNET_TOPOLOGY", LAB_TOPOLOGY))
+            topology = Topology.model_validate_json(path.read_text())
+            app = create_app(store, make_runner, topology, driver)
             await uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port)).serve()
 
 

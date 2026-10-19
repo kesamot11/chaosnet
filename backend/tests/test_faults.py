@@ -245,3 +245,7 @@ def test_remove_fails_clearly_when_error_body_is_not_json() -> None:
     fault = Fault(LINK, "chaosnet-latency-upstream", "latency", "request", {})
     with pytest.raises(FaultError, match=f"{LINK}: HTTP 500"):
         run(lambda d: d.remove(fault), fake)
+
+
+def test_links_are_the_toxiproxy_proxies() -> None:
+    assert run(lambda d: d.links()) == {"gateway-orders", "orders-inventory"}

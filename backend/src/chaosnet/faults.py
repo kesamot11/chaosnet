@@ -61,6 +61,13 @@ class FaultDriver:
         res = await self.client.post(f"{self.api_url}/reset")
         res.raise_for_status()
 
+    async def links(self) -> set[str]:
+        """Names of the proxies Toxiproxy has, one per link."""
+        res = await self.client.get(f"{self.api_url}/proxies")
+        if res.is_error:
+            raise FaultError(f"listing links failed: HTTP {res.status_code} {res.text}")
+        return set(res.json())
+
     async def list_faults(self) -> list[Fault]:
         res = await self.client.get(f"{self.api_url}/proxies")
         if res.is_error:
