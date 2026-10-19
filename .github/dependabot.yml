@@ -1,9 +1,12 @@
 version: 2
+# cooldown: Tomáš's quarantine, no version younger than 3 days (#37, ADR-005).
 updates:
   - package-ecosystem: uv
     directory: /backend
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
     groups:
       dev-tools:
         dependency-type: development
@@ -12,16 +15,23 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
 
   - package-ecosystem: uv
     directory: /lab
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
 
   - package-ecosystem: npm
     directory: /frontend
     schedule:
       interval: weekly
-    # The same quarantine as for every other dependency: no version younger than 3 days.
     cooldown:
       default-days: 3
+    groups:
+      # react and react-dom must have exactly the same version, or React refuses to run.
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
