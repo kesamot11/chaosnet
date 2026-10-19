@@ -26,10 +26,13 @@ from chaosnet.topology import Topology
 LAB = Path(__file__).parents[2] / "lab" / "topology.json"
 
 
+NAMES = ("s1", "s2", "s3", "s4")
+
+
 def topology(
-    *links: tuple[str, str], port: str | None = "a", names: str = "abcd"
+    *links: tuple[str, str], port: str | None = "s1", names: tuple[str, ...] = NAMES
 ) -> dict[str, Any]:
-    """A small topology: services named by the letters of ``names``, ``port`` on one of them."""
+    """A small topology: services ``s1`` to ``s4``, ``port`` on one of them."""
     return {
         "version": 1,
         "services": [{"name": n, **({"port": 8080} if n == port else {})} for n in names],
@@ -40,8 +43,12 @@ def topology(
 def assert_rejected(data: dict[str, Any], *words: str) -> None:
     with pytest.raises(ValidationError) as e:
         Topology.model_validate(data)
+    # Only the location and the message: str(e.value) also echoes the whole input, which
+    # would contain every name whether or not the message mentions it.
+    error = e.value.errors()[0]
+    message = " ".join(str(part) for part in error["loc"]) + ": " + error["msg"]
     for word in words:
-        assert word in str(e.value), f"{word!r} missing from: {e.value}"
+        assert word in message, f"{word!r} missing from: {message}"
 
 
 # --- valid topologies -------------------------------------------------------------------
@@ -55,17 +62,17 @@ def test_the_lab_topology_is_valid() -> None:
 
 
 def test_defaults_for_a_link() -> None:
-    link = Topology.model_validate(topology(("a", "b"))).links[0]
+    link = Topology.model_validate(topology(("s1", "s2"))).links[0]
     assert (link.timeout_s, link.max_retries) == (1.0, 0)
 
 
 def test_a_service_called_by_two_others_is_not_a_cycle() -> None:
-    # a -> b -> d and a -> c -> d: d is reached twice, but nothing calls back.
-    Topology.model_validate(topology(("a", "b"), ("a", "c"), ("b", "d"), ("c", "d")))
+    # s1 -> s2 -> s4 and s1 -> s3 -> s4: s4 is reached twice, but nothing calls back.
+    Topology.model_validate(topology(("s1", "s2"), ("s1", "s3"), ("s2", "s4"), ("s3", "s4")))
 
 
 def test_a_longer_chain_is_valid() -> None:
-    Topology.model_validate(topology(("a", "b"), ("b", "c"), ("c", "d")))
+    Topology.model_validate(topology(("s1", "s2"), ("s2", "s3"), ("s3", "s4")))
 
 
 # --- rule 1: version --------------------------------------------------------------------
@@ -73,60 +80,60 @@ def test_a_longer_chain_is_valid() -> None:
 
 @pytest.mark.parametrize("version", [0, 2, 7])
 def test_unknown_version(version: int) -> None:
-    assert_rejected({**topology(("a", "b")), "version": version}, "version", str(version))
+    assert_rejected({**topology(("s1", "s2")), "version": version}, "version", str(version))
 
 
 # --- rule 2: unique names ---------------------------------------------------------------
 
 
 def test_duplicate_service() -> None:
-    assert_rejected(topology(("a", "b"), names="abb"), "duplicate", "b")
+    assert_rejected(topology(("s1", "s2"), names=("s1", "s2", "s2")), "duplicate", "s2")
 
 
 # --- rule 3: links between existing services --------------------------------------------
 
 
 def test_link_to_unknown_service() -> None:
-    assert_rejected(topology(("a", "x")), "unknown", "x")
+    assert_rejected(topology(("s1", "s9")), "unknown", "s9")
 
 
 def test_link_from_unknown_service() -> None:
-    assert_rejected(topology(("x", "a")), "unknown", "x")
+    assert_rejected(topology(("s9", "s1")), "unknown", "s9")
 
 
 # --- rule 4: no link to itself, no link twice -------------------------------------------
 
 
 def test_link_to_itself() -> None:
-    assert_rejected(topology(("a", "a")), "itself", "a")
+    assert_rejected(topology(("s1", "s1")), "itself", "s1")
 
 
 def test_same_link_twice() -> None:
-    assert_rejected(topology(("a", "b"), ("a", "b")), "twice", "a-b")
+    assert_rejected(topology(("s1", "s2"), ("s1", "s2")), "twice", "s1-s2")
 
 
 # --- rule 5: no cycles ------------------------------------------------------------------
 
 
 def test_two_services_calling_each_other() -> None:
-    assert_rejected(topology(("a", "b"), ("b", "a")), "cycle")
+    assert_rejected(topology(("s1", "s2"), ("s2", "s1")), "cycle")
 
 
 def test_longer_cycle() -> None:
-    assert_rejected(topology(("a", "b"), ("b", "c"), ("c", "d"), ("d", "b")), "cycle")
+    assert_rejected(topology(("s1", "s2"), ("s2", "s3"), ("s3", "s4"), ("s4", "s2")), "cycle")
 
 
 # --- rule 6: exactly one entry ----------------------------------------------------------
 
 
 def test_no_service_has_a_port() -> None:
-    assert_rejected(topology(("a", "b"), port=None), "port")
+    assert_rejected(topology(("s1", "s2"), port=None), "port")
 
 
 def test_two_services_have_a_port() -> None:
-    data = topology(("a", "b"))
+    data = topology(("s1", "s2"))
     data["services"][1]["port"] = 8081
-    assert_rejected(data, "port", "a", "b")
+    assert_rejected(data, "port", "s1", "s2")
 
 
 # --- rule 7: names ----------------------------------------------------------------------
@@ -134,7 +141,7 @@ def test_two_services_have_a_port() -> None:
 
 @pytest.mark.parametrize("name", ["Orders", "order-svc", "order svc", ""])
 def test_bad_service_name(name: str) -> None:
-    data = topology(("a", "b"))
+    data = topology(("s1", "s2"))
     data["services"].append({"name": name})
     assert_rejected(data, "name", repr(name))
 
@@ -144,12 +151,12 @@ def test_bad_service_name(name: str) -> None:
 
 @pytest.mark.parametrize(("field", "value"), [("timeout_s", 0), ("max_retries", -1)])
 def test_bad_link_values(field: str, value: float) -> None:
-    data = topology(("a", "b"))
+    data = topology(("s1", "s2"))
     data["links"][0][field] = value
     assert_rejected(data, field)
 
 
 def test_port_out_of_range() -> None:
-    data = topology(("a", "b"))
+    data = topology(("s1", "s2"))
     data["services"][0]["port"] = 70000
     assert_rejected(data, "port")
