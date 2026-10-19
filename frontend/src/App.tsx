@@ -1,28 +1,37 @@
 import { useEffect, useState } from "react";
+import { fetchTopology, type Topology } from "./api";
+import { TopologyView } from "./TopologyView";
 
-type Status = "checking" | "up" | "down";
-
-/** The first screen: says whether the controller answers. The topology view comes in #76. */
 export function App() {
-  const [status, setStatus] = useState<Status>("checking");
+  const [topology, setTopology] = useState<Topology | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/experiments", { signal: controller.signal })
-      .then((res) => setStatus(res.ok ? "up" : "down"))
-      .catch(() => {
-        if (!controller.signal.aborted) setStatus("down");
+    fetchTopology(controller.signal)
+      .then(setTopology)
+      .catch((e: unknown) => {
+        if (!controller.signal.aborted) setError(e instanceof Error ? e.message : String(e));
       });
-    return () => controller.abort();
+    return () => controller.abort(); // the component went away: stop the request
   }, []);
 
   return (
     <main>
       <h1>ChaosNet</h1>
-      <p>
-        Controller:{" "}
-        {status === "checking" ? "checking…" : status === "up" ? "running" : "not reachable"}
-      </p>
+      {error !== null && <p>Controller not reachable: {error}</p>}
+      {error === null && topology === null && <p>Loading the lab…</p>}
+      {topology !== null && (
+        <>
+          <TopologyView topology={topology} selected={selected} onSelect={setSelected} />
+          <p>
+            {selected === null
+              ? "Click a link to choose where the fault goes."
+              : `Selected link: ${selected}`}
+          </p>
+        </>
+      )}
     </main>
   );
 }
