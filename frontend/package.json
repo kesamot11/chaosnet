@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "react": "19.1.10",
-    "react-dom": "19.1.10"
+    "react-dom": "19.3.1"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
