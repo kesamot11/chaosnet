@@ -307,3 +307,68 @@ the runner's `finally` (layer 1) and the watchdog (layer 3) cover it.
 - Stopping the server (Ctrl+C) is recorded as "aborted by user" as well.
 - An unknown link is found only when inject starts, after the baseline was measured.
 - The API has no authentication; that is acceptable only on `127.0.0.1` (ADR-002).
+
+---
+
+## ADR-005: UI stack and a lab generated from a topology spec
+
+- **Status:** Accepted
+- **Date:** 2026-10-19 (Sprint 4 planning)
+- **Issues:** #71–#80, #62
+- **Decided by:** Tomáš; reasons below are his, recorded from the discussion
+
+### Context
+
+M4 adds the first UI: see the lab as a graph, pick a link, run an experiment, watch the
+results. The lab is to become customizable, so its shape can no longer live in a
+hand-written `compose.yaml` alone.
+
+### Decisions
+
+**1. Vite + React + TypeScript (a single-page app), not Next.js.**
+*Reason:* "Next is unnecessary for a local application that needs no SEO." The backend
+already exists (FastAPI); Next would add a second server with nothing to do.
+The UI reaches the API through the **Vite dev proxy**, so the API sends no CORS headers
+and stays closed to other web pages (the threat model behind ADR-004 decision 7).
+
+**2. One `topology.json` describes the lab, and the lab is generated from it.**
+A command writes `compose.yaml` and `toxiproxy.json`; `docker compose up` stays a step the
+user runs. The controller never gets the Docker socket, which is root on the host
+(ADR-002).
+*Reason:* the lab will be customizable. A shape hard-coded in the UI would be a third copy
+next to compose and Toxiproxy, and they would drift. Tomáš chose generating the lab now
+over a read-only spec first ("so the work is not done twice"), in a minimal form: chains
+and simple branching, no editor. Format (#72): `version`, services as objects (the entry has
+a `port`), links as objects with `from`, `to` and the per-call `timeout_s` and
+`max_retries`; one Toxiproxy proxy per link is derived, not written.
+
+**3. The UI polls `GET /experiments/{id}` every second.**
+*Reason:* the endpoint already exists and is tested; a result appears once per phase, so
+a delay of up to 1 s does not matter. Revisit for the live graph if polling falls short.
+
+**4. React Flow (`@xyflow/react`) draws the topology.**
+*Reason:* a customizable lab will need a drag-and-drop editor; React Flow brings panning,
+zoom, edge selection and editing. Plain SVG would do today's static picture only.
+
+**5. The latency-over-time graph (#62, #79) is part of Sprint 4.**
+Claude recommended Sprint 5 to keep the sprint at ~25 points; Tomáš chose now (31 points).
+
+### Alternatives rejected
+
+| Decision | Rejected | Why |
+|---|---|---|
+| 1 | Next.js | a second server; SEO and server rendering are not needed locally |
+| 1 | CORS on the API | lets any web page the user opens call the controller |
+| 2 | nodes hard-coded in the UI | a third copy of the lab's shape; no customization |
+| 2 | read-only spec now, generation later | Tomáš: do it once |
+| 2 | the controller starts the lab | needs the Docker socket (root) inside a network-facing process |
+| 3 | Server-Sent Events, WebSocket | new endpoint and connection handling for no visible gain |
+| 4 | plain SVG | the editor would have to be written from scratch |
+
+### Consequences
+
+- New dependency families (npm): versions follow the same 3-day quarantine as Python and
+  Actions.
+- The committed `compose.yaml` and `toxiproxy.json` become generated files; CI must fail
+  when they drift from `topology.json` (#80).
+- `TARGET_URL` can be derived from the topology's entry service instead of configured.
