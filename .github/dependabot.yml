@@ -17,3 +17,11 @@ updates:
     directory: /lab
     schedule:
       interval: weekly
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    # The same quarantine as for every other dependency: no version younger than 3 days.
+    cooldown:
+      default-days: 3
