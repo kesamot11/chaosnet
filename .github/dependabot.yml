@@ -31,3 +31,7 @@ updates:
       interval: weekly
     cooldown:
       default-days: 3
+    groups:
+      # react and react-dom must have exactly the same version, or React refuses to run.
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
