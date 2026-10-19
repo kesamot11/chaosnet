@@ -84,6 +84,14 @@ curl localhost:8476/experiments/1
 curl -X POST localhost:8476/experiments/1/abort
 ```
 
+The UI (needs Node 26 and a running `chaosnet-api`):
+
+```bash
+cd frontend
+npm ci --ignore-scripts
+npm run dev        # http://127.0.0.1:5173
+```
+
 `make integration` runs the acceptance tests against a real Compose lab (needs Docker).
 
 ## License
