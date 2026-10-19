@@ -1,6 +1,6 @@
 import type { Topology } from "./api";
 
-export const COLUMN_GAP = 220;
+export const COLUMN_GAP = 300;
 export const ROW_GAP = 100;
 
 export type Position = { x: number; y: number };

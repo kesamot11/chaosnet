@@ -50,9 +50,10 @@ export function TopologyView({ topology, selected, onSelect }: Props) {
   }));
 
   function handleEdgeClick(link: Link | undefined) {
-    // Tomáš: select the link, but only if a fault can be added to it (it is available).
-    void link;
-    void onSelect;
+    // Only a link with a proxy can take a fault.
+    if (link?.available) {
+      onSelect(link.name);
+    }
   }
 
   return (
