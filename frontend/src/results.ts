@@ -8,5 +8,8 @@ import type { PhaseSummary } from "./api";
  * not the same as no errors.
  */
 export function errorRate(summary: PhaseSummary): number | null {
-  throw new Error("not written yet: Tomáš, #78");
+  if (summary.scheduled === 0) {
+    return null;
+  }
+  return (summary.scheduled - (summary.outcomes["ok"] ?? 0)) / summary.scheduled;
 }
