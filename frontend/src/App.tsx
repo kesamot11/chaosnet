@@ -1,12 +1,17 @@
 import { useEffect, useState } from "react";
-import { fetchTopology, type Topology } from "./api";
+import { abortExperiment, fetchTopology, type Topology } from "./api";
 import { ExperimentForm } from "./ExperimentForm";
+import { ExperimentStatus } from "./ExperimentStatus";
 import { TopologyView } from "./TopologyView";
+import { useExperiment } from "./useExperiment";
 
 export function App() {
   const [topology, setTopology] = useState<Topology | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  // The experiment started last; it outlives the form, which follows the selected link.
+  const [experimentId, setExperimentId] = useState<number | null>(null);
+  const { experiment, unreachable } = useExperiment(experimentId);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -31,7 +36,15 @@ export function App() {
               ? "Click a link to choose where the fault goes."
               : `Selected link: ${selected}`}
           </p>
-          {selected !== null && <ExperimentForm link={selected} />}
+          {selected !== null && <ExperimentForm link={selected} onStarted={setExperimentId} />}
+          {experiment !== null && (
+            <ExperimentStatus
+              experiment={experiment}
+              unreachable={unreachable}
+              // A refused abort shows up in the next poll: the experiment is no longer running.
+              onAbort={() => abortExperiment(experiment.id)}
+            />
+          )}
         </>
       )}
     </main>
