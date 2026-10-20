@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchTopology, type Topology } from "./api";
+import { ExperimentForm } from "./ExperimentForm";
 import { TopologyView } from "./TopologyView";
 
 export function App() {
@@ -30,6 +31,7 @@ export function App() {
               ? "Click a link to choose where the fault goes."
               : `Selected link: ${selected}`}
           </p>
+          {selected !== null && <ExperimentForm link={selected} />}
         </>
       )}
     </main>
