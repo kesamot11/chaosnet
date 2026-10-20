@@ -31,19 +31,63 @@ export async function fetchTopology(signal?: AbortSignal): Promise<Topology> {
   return (await res.json()) as Topology;
 }
 
+export type State =
+  | "pending"
+  | "baseline"
+  | "inject"
+  | "recover"
+  | "completed"
+  | "failed"
+  | "aborted";
+export type Phase = "baseline" | "inject" | "recover";
+
+/** No way out of these (TRANSITIONS in backend/src/chaosnet/experiments.py). */
+export const END_STATES: ReadonlySet<State> = new Set(["completed", "failed", "aborted"]);
+
+type Percentiles = { p50: number; p95: number; p99: number; p100: number };
+
+/** What the load generator measured in one phase (summarize in backend/src/chaosnet/loadgen.py). */
+export type PhaseSummary = {
+  scheduled: number;
+  outcomes: Record<string, number>; // e.g. { ok: 150, timeout: 50 }; a key with 0 is missing
+  latency_ms: { ok: Percentiles | null; all: Percentiles | null }; // null: no requests
+};
+
 /** The record of one experiment (Experiment in backend/src/chaosnet/store.py), the fields the UI reads. */
-export type Experiment = { id: number; name: string; state: string; reason: string | null };
+export type Experiment = {
+  id: number;
+  name: string;
+  state: State;
+  results: Partial<Record<Phase, PhaseSummary>>; // a phase appears when it has been measured
+  verdict: { passed: boolean; reasons: string[] } | null; // null until completed
+  reason: string | null; // why it failed or was aborted
+};
 
-export type StartResult = { ok: true; experiment: Experiment } | { ok: false; reason: string };
+/** The controller's answer to a start or an abort. A refusal or no controller is an answer too. */
+export type Answer = { ok: true; experiment: Experiment } | { ok: false; reason: string };
 
-/** Start an experiment. A refusal or a missing controller is a result, not an exception. */
-export async function startExperiment(spec: ExperimentSpec): Promise<StartResult> {
+export function startExperiment(spec: ExperimentSpec): Promise<Answer> {
+  return post("/api/experiments", spec);
+}
+
+export function abortExperiment(id: number): Promise<Answer> {
+  return post(`/api/experiments/${id}/abort`);
+}
+
+/** One poll of #78; throws when there is no answer, the caller decides when to try again. */
+export async function fetchExperiment(id: number, signal?: AbortSignal): Promise<Experiment> {
+  const res = await fetch(`/api/experiments/${id}`, { signal });
+  if (!res.ok) throw new Error(`GET /experiments/${id} failed: HTTP ${res.status}`);
+  return (await res.json()) as Experiment;
+}
+
+async function post(path: string, body?: unknown): Promise<Answer> {
   let res: Response;
   try {
-    res = await fetch("/api/experiments", {
+    res = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(spec),
+      body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (e) {
     return { ok: false, reason: `Controller not reachable: ${e instanceof Error ? e.message : e}` };

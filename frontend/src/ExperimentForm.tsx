@@ -1,5 +1,5 @@
 import { type ChangeEvent, type FormEvent, useState } from "react";
-import { type StartResult, startExperiment } from "./api";
+import { type Answer, startExperiment } from "./api";
 import { type FormValues, toSpec } from "./form";
 
 const DEFAULTS: FormValues = {
@@ -16,13 +16,16 @@ const DEFAULTS: FormValues = {
   max_error_rate: 0.01,
 };
 
-type Props = { link: string }; // the link selected in the topology view
+type Props = {
+  link: string; // the link selected in the topology view
+  onStarted: (id: number) => void; // the experiment the status view follows (#78)
+};
 
 /** The experiment for one link (#77). On a refusal everything typed stays, with the reason. */
-export function ExperimentForm({ link }: Props) {
+export function ExperimentForm({ link, onStarted }: Props) {
   const [values, setValues] = useState(DEFAULTS);
   const [sending, setSending] = useState(false); // waiting for the controller's answer
-  const [result, setResult] = useState<StartResult | null>(null); // null: not started yet
+  const [result, setResult] = useState<Answer | null>(null); // null: not started yet
 
   // One change handler for every field: `field("ms")` updates values.ms.
   function field(key: keyof FormValues) {
@@ -40,6 +43,7 @@ export function ExperimentForm({ link }: Props) {
     const res = await startExperiment(spec);
     setResult(res);
     setSending(false);
+    if (res.ok) onStarted(res.experiment.id);
   }
 
   return (
