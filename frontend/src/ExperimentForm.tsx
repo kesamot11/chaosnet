@@ -35,7 +35,11 @@ export function ExperimentForm({ link }: Props) {
 
   async function submit(e: FormEvent) {
     e.preventDefault(); // a plain HTML form would reload the page
-    // Tomáš (#77, points 3 and 4 of your plan)
+    setSending(true);
+    const spec = toSpec(values, link);
+    const res = await startExperiment(spec);
+    setResult(res);
+    setSending(false);
   }
 
   return (
