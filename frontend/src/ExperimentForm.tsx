@@ -1,5 +1,5 @@
 import { type ChangeEvent, type FormEvent, useState } from "react";
-import { type StartResult, startExperiment } from "./api";
+import { type Answer, startExperiment } from "./api";
 import { type FormValues, toSpec } from "./form";
 
 const DEFAULTS: FormValues = {
@@ -22,7 +22,7 @@ type Props = { link: string }; // the link selected in the topology view
 export function ExperimentForm({ link }: Props) {
   const [values, setValues] = useState(DEFAULTS);
   const [sending, setSending] = useState(false); // waiting for the controller's answer
-  const [result, setResult] = useState<StartResult | null>(null); // null: not started yet
+  const [result, setResult] = useState<Answer | null>(null); // null: not started yet
 
   // One change handler for every field: `field("ms")` updates values.ms.
   function field(key: keyof FormValues) {
