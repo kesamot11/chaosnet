@@ -11,5 +11,5 @@ export function errorRate(summary: PhaseSummary): number | null {
   if (summary.scheduled === 0) {
     return null;
   }
-  return (summary.scheduled - (summary.outcomes["ok"] ?? 0)) / summary.scheduled;
+  return (summary.scheduled - (summary.outcomes.ok ?? 0)) / summary.scheduled;
 }

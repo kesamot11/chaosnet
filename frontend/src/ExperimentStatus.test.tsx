@@ -41,8 +41,8 @@ test("while running: the phase, what is measured so far, and Abort", () => {
   expect(screen.getByText(/inject \(2\/3\)/)).toBeInTheDocument();
   // p50, p95 and the error rate, one decimal each
   expect(row("baseline")).toHaveTextContent(/10\.4 ms.*15\.1 ms.*0\.0 %/);
-  expect(within(row("inject")).getAllByText("—")).toHaveLength(3); // not measured yet
-  expect(within(row("recover")).getAllByText("—")).toHaveLength(3);
+  expect(within(row("inject")).getAllByText("-")).toHaveLength(3); // not measured yet
+  expect(within(row("recover")).getAllByText("-")).toHaveLength(3);
   fireEvent.click(screen.getByRole("button", { name: "Abort" }));
   expect(onAbort).toHaveBeenCalledOnce();
 });
