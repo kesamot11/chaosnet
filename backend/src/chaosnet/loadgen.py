@@ -13,7 +13,7 @@ import argparse
 import asyncio
 import json
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -113,7 +113,40 @@ def summarize(samples: list[Sample], *, rate: float, duration_s: float) -> dict[
         },
         # If this grows, the generator (not the target) is the bottleneck and the run is invalid.
         "send_lag_ms": latency_ms([s.send_lag_s for s in samples]),
+        "per_second": per_second(samples),  # for the latency graph (#62, #79)
     }
+
+
+def per_second(samples: list[Sample]) -> list[dict[str, Any]]:
+    """p50, p95 and error rate for every second of the run, by when a request was sent (#62).
+
+    Plan by Tomáš (2026-10-20): a request belongs to the second it was scheduled in, so
+    the graph shows a fault when it starts, not when its slow answers come back. The
+    numbers are counted like the phase summary and ``judge``: latency of every sent
+    request (``all``), error rate over every scheduled one. A second without requests
+    is a record of ``None``s, not left out: the graph must show a gap, not a line.
+    """
+    if len(samples) == 0:
+        return []
+    res: list[dict[str, Any]] = []
+    samples_second: defaultdict[int, list[Sample]] = defaultdict(list)
+    for s in samples:
+        samples_second[int(s.scheduled_s)].append(s)
+    for i in range(max(samples_second) + 1):
+        group = samples_second[i]
+        if len(group) == 0:
+            res.append({"second": i, "p50": None, "p95": None, "error_rate": None})
+            continue
+        latencies = [s.latency_s * 1000 for s in group if s.outcome != "dropped"]
+        if len(latencies) == 0:
+            res.append({"second": i, "p50": None, "p95": None, "error_rate": 1.0})
+            continue
+        p50 = round(percentile(latencies, 50), 2)
+        p95 = round(percentile(latencies, 95), 2)
+        count = len([g for g in group if g.outcome == "ok"])
+        err_rate = (len(group) - count) / len(group)
+        res.append({"second": i, "p50": p50, "p95": p95, "error_rate": err_rate})
+    return res
 
 
 async def _main(args: argparse.Namespace) -> dict[str, Any]:
