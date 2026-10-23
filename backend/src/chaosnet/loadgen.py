@@ -113,7 +113,20 @@ def summarize(samples: list[Sample], *, rate: float, duration_s: float) -> dict[
         },
         # If this grows, the generator (not the target) is the bottleneck and the run is invalid.
         "send_lag_ms": latency_ms([s.send_lag_s for s in samples]),
+        "per_second": per_second(samples),  # for the latency graph (#62, #79)
     }
+
+
+def per_second(samples: list[Sample]) -> list[dict[str, Any]]:
+    """p50, p95 and error rate for every second of the run, by when a request was sent (#62).
+
+    Plan by Tomáš (2026-10-20): a request belongs to the second it was scheduled in, so
+    the graph shows a fault when it starts, not when its slow answers come back. The
+    numbers are counted like the phase summary and ``judge``: latency of every sent
+    request (``all``), error rate over every scheduled one. A second without requests
+    is a record of ``None``s, not left out: the graph must show a gap, not a line.
+    """
+    raise NotImplementedError("Tomáš, #62")
 
 
 async def _main(args: argparse.Namespace) -> dict[str, Any]:
