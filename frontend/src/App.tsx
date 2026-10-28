@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { abortExperiment, fetchTopology, type Topology } from "./api";
 import { ExperimentForm } from "./ExperimentForm";
 import { ExperimentStatus } from "./ExperimentStatus";
+import { LatencyChart } from "./LatencyChart";
 import { TopologyView } from "./TopologyView";
 import { useExperiment } from "./useExperiment";
 
@@ -45,6 +46,7 @@ export function App() {
               onAbort={() => abortExperiment(experiment.id)}
             />
           )}
+          {experiment !== null && <LatencyChart experiment={experiment} />}
         </>
       )}
     </main>

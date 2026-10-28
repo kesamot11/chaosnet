@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Experiment, SecondSummary } from "./api";
-import { segments, timeline } from "./chart";
+import { segments, timeline, toPoints } from "./chart";
 
 describe("segments", () => {
   it("scales seconds to x and values to y, with 0 at the bottom", () => {
@@ -97,5 +97,20 @@ describe("timeline", () => {
   it("a phase not measured yet is empty seconds, so the graph keeps its width", () => {
     const t = timeline(experiment({ baseline: summary([point(0, 10), point(1, 11)]) }));
     expect(t.p95).toEqual([10, 11, null, null, null, null, null]);
+  });
+});
+
+describe("toPoints", () => {
+  it("joins the points the way <polyline> reads them", () => {
+    expect(
+      toPoints([
+        { x: 0, y: 200 },
+        { x: 100, y: 150 },
+      ]),
+    ).toBe("0,200 100,150");
+  });
+
+  it("a single point", () => {
+    expect(toPoints([{ x: 12.5, y: 0 }])).toBe("12.5,0");
   });
 });
