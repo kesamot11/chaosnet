@@ -15,4 +15,11 @@ SERVICE_PORT = 8000  # every service listens here in its container
 
 def toxiproxy_config(topology: Topology) -> list[dict[str, Any]]:
     """One proxy per link, each on its own port: the content of toxiproxy.json."""
-    raise NotImplementedError("Tomáš, #73")
+    res: list[dict[str, Any]] = []
+    for i, link in enumerate(topology.links):
+        name = link.name
+        listen = f"0.0.0.0:{FIRST_PROXY_PORT + i}"
+        upstream = f"{link.to}:{SERVICE_PORT}"
+        enabled = True
+        res.append({"name": name, "listen": listen, "upstream": upstream, "enabled": enabled})
+    return res
