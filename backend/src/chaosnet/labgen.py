@@ -12,8 +12,10 @@ from chaosnet.topology import Link, Topology
 FIRST_PROXY_PORT = 8665  # inside the lab network only, never published
 SERVICE_PORT = 8000  # every service listens here in its container
 
+
 def proxy_port(topology: Topology, link: Link) -> int:
     return FIRST_PROXY_PORT + topology.links.index(link)
+
 
 def toxiproxy_config(topology: Topology) -> list[dict[str, Any]]:
     """One proxy per link, each on its own port: the content of toxiproxy.json."""
