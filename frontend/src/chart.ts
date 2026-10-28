@@ -63,5 +63,5 @@ export function segments(
 
 /** A line for SVG's <polyline points="...">: "x,y x,y ...", e.g. "0,200 100,150". */
 export function toPoints(segment: Point[]): string {
-  throw new Error("not written yet: Tomáš, #79");
+  return segment.map((p) => `${p.x},${p.y}`).join(" ");
 }
