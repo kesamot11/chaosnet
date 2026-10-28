@@ -2,8 +2,9 @@
 
 import json
 from pathlib import Path
+from typing import Any
 
-from chaosnet.labgen import toxiproxy_config
+from chaosnet.labgen import service_config, toxiproxy_config
 from chaosnet.topology import Topology
 
 LAB = Path(__file__).parents[2] / "lab"
@@ -45,3 +46,70 @@ def test_no_links_no_proxies() -> None:
 def test_the_default_lab_gives_todays_toxiproxy_json() -> None:
     lab = Topology.model_validate_json((LAB / "topology.json").read_text())
     assert toxiproxy_config(lab) == json.loads((LAB / "toxiproxy.json").read_text())
+
+
+# --- service_config ---------------------------------------------------------------------
+
+
+def calls(config: dict[str, Any]) -> list[dict[str, Any]]:
+    return json.loads(config["environment"]["CALLS"])
+
+
+def test_a_service_calls_through_the_proxy_of_its_link() -> None:
+    lab = Topology.model_validate_json((LAB / "topology.json").read_text())
+    orders = service_config(lab, "orders")
+    assert orders["environment"]["SERVICE_NAME"] == "orders"
+    assert calls(orders) == [
+        {
+            "hop": "orders->inventory",
+            "url": "http://toxiproxy:8666",
+            "timeout_s": 0.5,
+            "max_retries": 2,
+        }
+    ]
+    assert orders["depends_on"] == {
+        "inventory": {"condition": "service_healthy"},
+        "toxiproxy": {"condition": "service_healthy"},
+    }
+    assert "ports" not in orders  # only the entry is reachable from the Mac
+
+
+def test_only_the_entry_publishes_its_port_on_localhost() -> None:
+    lab = Topology.model_validate_json((LAB / "topology.json").read_text())
+    assert service_config(lab, "gateway")["ports"] == ["127.0.0.1:${ENTRY_PORT:-8080}:8000"]
+
+
+def test_a_leaf_calls_nobody_and_waits_for_nobody() -> None:
+    leaf = service_config(topology(("a", "b")), "b")
+    assert calls(leaf) == []
+    assert leaf["depends_on"] == {}
+
+
+def test_a_service_calling_two_others_calls_both_with_their_own_settings() -> None:
+    t = Topology.model_validate(
+        {
+            "version": 1,
+            "services": [{"name": "a", "port": 8080}, {"name": "b"}, {"name": "c"}],
+            "links": [
+                {"from": "a", "to": "b", "timeout_s": 2.0, "max_retries": 1},
+                {"from": "a", "to": "c", "timeout_s": 0.3, "max_retries": 0},
+            ],
+        }
+    )
+    a = service_config(t, "a")
+    assert [(c["hop"], c["timeout_s"], c["max_retries"]) for c in calls(a)] == [
+        ("a->b", 2.0, 1),
+        ("a->c", 0.3, 0),
+    ]
+    assert set(a["depends_on"]) == {"b", "c", "toxiproxy"}
+
+
+def test_every_service_calls_exactly_the_ports_toxiproxy_listens_on() -> None:
+    # the two halves of the lab must agree on every link's port, or a fault on a link
+    # would land on a proxy nobody calls
+    t = topology(("a", "b"), ("a", "c"), ("b", "d"), ("c", "d"))
+    listened = {p["listen"].split(":")[1] for p in toxiproxy_config(t)}
+    called = {
+        c["url"].rsplit(":", 1)[1] for s in t.services for c in calls(service_config(t, s.name))
+    }
+    assert called == listened

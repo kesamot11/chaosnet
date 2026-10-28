@@ -27,3 +27,15 @@ def toxiproxy_config(topology: Topology) -> list[dict[str, Any]]:
         enabled = True
         res.append({"name": name, "listen": listen, "upstream": upstream, "enabled": enabled})
     return res
+
+
+def service_config(topology: Topology, service: str) -> dict[str, Any]:
+    """The part of one service in compose.yaml that comes from the topology.
+
+    - environment: SERVICE_NAME, and CALLS as JSON (see lab/src/chaosnet_lab/service.py):
+      one entry per link from this service, through the link's proxy
+    - depends_on: every service it calls, and toxiproxy, all healthy
+    - ports: only the entry (the service with a port), on 127.0.0.1, overridable with
+      ENTRY_PORT, e.g. "127.0.0.1:${ENTRY_PORT:-8080}:8000"
+    """
+    raise NotImplementedError("Tomáš, #73")
