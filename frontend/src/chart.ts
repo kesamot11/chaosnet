@@ -44,5 +44,19 @@ export function segments(
   width: number,
   height: number,
 ): Point[][] {
-  throw new Error("not written yet: Tomáš, #79");
+  const res = [];
+  for (let i = 0; i < values.length; i++) {
+    if (values[i] == null) {
+      continue;
+    }
+    const segment: Point[] = [];
+    while (values[i] != null && i < values.length) {
+      const value = values[i] ?? 0;
+      const step = values.length > 1 ? width / (values.length - 1) : 0;
+      segment.push({ x: i * step, y: max === 0 ? height : height - (value / max) * height });
+      i++;
+    }
+    res.push(segment);
+  }
+  return res;
 }
