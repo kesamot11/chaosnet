@@ -7,18 +7,20 @@ and calls the services it links to; every link goes through its own Toxiproxy pr
 
 from typing import Any
 
-from chaosnet.topology import Topology
+from chaosnet.topology import Link, Topology
 
 FIRST_PROXY_PORT = 8665  # inside the lab network only, never published
 SERVICE_PORT = 8000  # every service listens here in its container
 
+def proxy_port(topology: Topology, link: Link) -> int:
+    return FIRST_PROXY_PORT + topology.links.index(link)
 
 def toxiproxy_config(topology: Topology) -> list[dict[str, Any]]:
     """One proxy per link, each on its own port: the content of toxiproxy.json."""
     res: list[dict[str, Any]] = []
-    for i, link in enumerate(topology.links):
+    for link in topology.links:
         name = link.name
-        listen = f"0.0.0.0:{FIRST_PROXY_PORT + i}"
+        listen = f"0.0.0.0:{proxy_port(topology, link)}"
         upstream = f"{link.to}:{SERVICE_PORT}"
         enabled = True
         res.append({"name": name, "listen": listen, "upstream": upstream, "enabled": enabled})
