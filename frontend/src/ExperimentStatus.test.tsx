@@ -8,6 +8,7 @@ function measured(p50: number, p95: number, ok: number, failed = 0): PhaseSummar
     scheduled: ok + failed,
     outcomes: failed > 0 ? { ok, timeout: failed } : { ok },
     latency_ms: { ok: null, all: { p50, p95, p99: p95, p100: p95 } },
+    per_second: [],
   };
 }
 
@@ -19,6 +20,13 @@ function experiment(fields: Partial<Experiment>): Experiment {
     id: 7,
     name: "slow inventory",
     state: "inject",
+    spec: {
+      name: "slow inventory",
+      fault: { kind: "latency", link: "orders-inventory", direction: "both", ms: 200 },
+      load: { rate: 20, body: {} },
+      phases_s: { baseline: 10, inject: 15, recover: 10 },
+      hypothesis: { max_p95_ms: 200, max_error_rate: 0.01 },
+    },
     results: {},
     verdict: null,
     reason: null,
@@ -87,7 +95,12 @@ test("aborted: why, no Abort", () => {
 });
 
 test("a phase without requests says so instead of 0 %", () => {
-  const empty: PhaseSummary = { scheduled: 0, outcomes: {}, latency_ms: { ok: null, all: null } };
+  const empty: PhaseSummary = {
+    scheduled: 0,
+    outcomes: {},
+    latency_ms: { ok: null, all: null },
+    per_second: [],
+  };
   show(experiment({ state: "inject", results: { baseline: empty } }));
   expect(row("baseline")).toHaveTextContent("no requests");
   expect(row("baseline")).not.toHaveTextContent("%");

@@ -3,7 +3,7 @@ import type { PhaseSummary } from "./api";
 import { errorRate } from "./results";
 
 function phase(scheduled: number, outcomes: Record<string, number>): PhaseSummary {
-  return { scheduled, outcomes, latency_ms: { ok: null, all: null } };
+  return { scheduled, outcomes, latency_ms: { ok: null, all: null }, per_second: [] };
 }
 
 test("no errors", () => {

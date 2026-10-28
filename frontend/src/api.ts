@@ -19,7 +19,13 @@ export type Direction = "request" | "response" | "both";
 /** The body of POST /experiments (ExperimentSpec in backend/src/chaosnet/experiments.py). */
 export type ExperimentSpec = {
   name: string;
-  fault: { kind: FaultKind; link: string; direction: Direction; ms?: number; kbps?: number };
+  fault: {
+    kind: FaultKind;
+    link: string;
+    direction: Direction;
+    ms?: number | null;
+    kbps?: number | null;
+  };
   load: { rate: number; body: Record<string, unknown> };
   phases_s: { baseline: number; inject: number; recover: number };
   hypothesis: { max_p95_ms: number; max_error_rate: number };
@@ -51,6 +57,15 @@ export type PhaseSummary = {
   scheduled: number;
   outcomes: Record<string, number>; // e.g. { ok: 150, timeout: 50 }; a key with 0 is missing
   latency_ms: { ok: Percentiles | null; all: Percentiles | null }; // null: no requests
+  per_second: SecondSummary[]; // from second 0 to the last second with a request (#62)
+};
+
+/** One point of the latency graph; null: no request was sent in that second. */
+export type SecondSummary = {
+  second: number;
+  p50: number | null;
+  p95: number | null;
+  error_rate: number | null;
 };
 
 /** The record of one experiment (Experiment in backend/src/chaosnet/store.py), the fields the UI reads. */
@@ -58,6 +73,7 @@ export type Experiment = {
   id: number;
   name: string;
   state: State;
+  spec: ExperimentSpec;
   results: Partial<Record<Phase, PhaseSummary>>; // a phase appears when it has been measured
   verdict: { passed: boolean; reasons: string[] } | null; // null until completed
   reason: string | null; // why it failed or was aborted
