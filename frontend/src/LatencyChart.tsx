@@ -15,7 +15,13 @@ type ChartProps = {
 
 /** One quantity over the whole experiment; a second without data is a gap (#79). */
 function Chart({ label, values, max, format, phaseStarts }: ChartProps) {
-  const lines = segments(values, max, WIDTH, HEIGHT);
+  // The phases are three separate load runs: a line across a border would rise before
+  // the fault starts. So each phase gets its own lines, the rest of the axis masked out.
+  const lines = phaseStarts.flatMap((start, i) => {
+    const end = phaseStarts[i + 1] ?? values.length;
+    const phase = values.map((v, s) => (s >= start && s < end ? v : null));
+    return segments(phase, max, WIDTH, HEIGHT);
+  });
   const step = values.length > 1 ? WIDTH / (values.length - 1) : 0; // as in segments
   return (
     <figure>
