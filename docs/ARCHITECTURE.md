@@ -31,9 +31,9 @@ flowchart LR
         end
     end
     lg -- "POST /orders<br/>127.0.0.1:8080" --> gw
-    gw -- "POST /orders<br/>timeout 2.0 s, 1 retry" --> tp
+    gw -- "GET /orders<br/>timeout 2.0 s, 1 retry" --> tp
     tp --> or
-    or -- "GET /items/{id}<br/>timeout 0.5 s, 2 retries" --> tp
+    or -- "GET /orders<br/>timeout 0.5 s, 2 retries" --> tp
     tp --> inv
 ```
 
@@ -41,11 +41,9 @@ flowchart LR
 
 | Component | Code | Responsibility |
 |---|---|---|
-| gateway | `lab/src/chaosnet_lab/gateway.py` | Single entry point. Forwards orders to `orders`. |
-| orders | `lab/src/chaosnet_lab/orders.py` | Looks the item up in `inventory`. |
-| inventory | `lab/src/chaosnet_lab/inventory.py` | Leaf service; items in memory. |
-| `call_downstream` | `lab/src/chaosnet_lab/client.py` | Per-attempt timeout, retries on transport failure, 503/504 classification. Shared by gateway and orders. |
-| `relay`, `Hop` | `lab/src/chaosnet_lab/relay.py` | Hop config from env (validated at startup), error mapping, `path` propagation. |
+| lab service | `lab/src/chaosnet_lab/service.py` | The one program every node runs (gateway, orders, inventory are names in `lab/topology.json`). Calls every service it links to at the same time, passes a failure on naming the hop; a leaf answers at once. Config (`SERVICE_NAME`, `CALLS`) validated at startup. |
+| lab generator | `backend/src/chaosnet/labgen.py` | `uv run chaosnet-lab` writes `lab/compose.yaml` and `lab/toxiproxy.json` from `lab/topology.json` (#73). A test fails when they drift apart. |
+| `call_downstream` | `lab/src/chaosnet_lab/client.py` | Per-attempt timeout, retries on transport failure, 503/504 classification. |
 | load generator | `backend/src/chaosnet/loadgen.py` | Open-model load at a fixed rate; latency from scheduled send time; JSON report. |
 | `percentile` | `backend/src/chaosnet/stats.py` | Nearest-rank percentiles for reports. |
 | watchdog | `lab/src/chaosnet_lab/watchdog.py` | Cleanup layer 3: `POST /heartbeat` renews a 5 s lease; when it expires, `POST /reset` on Toxiproxy, retried until it succeeds. API on `127.0.0.1:8475`. |
@@ -61,14 +59,15 @@ organised.
 
 1. The load generator sends `POST /orders {"item_id": "42"}` to `127.0.0.1:8080`.
    Docker Desktop forwards it into the VM to `gateway:8000`.
-2. `gateway` calls `http://toxiproxy:8665` (proxy `gateway-orders`), which forwards
+2. `gateway` calls `GET /orders` on `http://toxiproxy:8665` (proxy `gateway-orders`), which forwards
    to `orders:8000`. Names are resolved by Docker's embedded DNS (`127.0.0.11`),
    then ARP finds the MAC on the bridge.
-3. `orders` calls `GET /items/42` on `http://toxiproxy:8666` (proxy
-   `orders-inventory`), which forwards to `inventory:8000`.
-4. `inventory` answers with the item and `"path": ["inventory"]`; each service on
-   the way back prepends its name, so the client receives
-   `"path": ["gateway", "orders", "inventory"]`.
+3. `orders` calls `GET /orders` on `http://toxiproxy:8666` (proxy
+   `orders-inventory`), which forwards to `inventory:8000`. Calls between services
+   are GET: a service changes nothing, so a call may be repeated after a timeout.
+4. `inventory` calls nobody and answers `{"service": "inventory", "calls": []}`; each
+   service on the way back wraps the answers of its callees, so the client receives
+   the tree of the request: gateway → orders → inventory.
 
 Failure handling per hop (`call_downstream`):
 
