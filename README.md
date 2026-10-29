@@ -41,13 +41,19 @@ against. Only the gateway is reachable from the host.
 ```bash
 cd lab
 docker compose up -d --build --wait
-curl -X POST localhost:8080/orders -H 'content-type: application/json' -d '{"item_id": "42"}'
+curl -X POST localhost:8080/orders
 docker compose down
 ```
 
-Per-hop timeouts and retries are environment variables (see `lab/compose.yaml`),
-e.g. `ORDERS_MAX_RETRIES=0 docker compose up -d --wait`. Set `GATEWAY_PORT` if 8080
-is taken.
+The lab is generated from `lab/topology.json`: its services, the links between them,
+and each link's timeout and retries. After changing it, generate the lab again and
+restart it (no rebuild: every service runs the same program):
+
+```bash
+cd backend && uv run chaosnet-lab
+```
+
+Set `ENTRY_PORT` if 8080 is taken.
 
 Generate load against it (open model, so a slow lab cannot hide its latency):
 

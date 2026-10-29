@@ -1,80 +1,178 @@
-name: chaosnet-lab
-
-x-service: &service
-  build: .
-  image: chaosnet-lab:dev
-  healthcheck:
-    test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/healthz', timeout=1)"]
-    interval: 2s
-    timeout: 2s
-    retries: 10
-    start_period: 10s
-    start_interval: 1s
-
-services:
-  # Every link between services goes through its own proxy here, so faults can be
-  # injected per link. Proxies come from toxiproxy.json on every start: a restart
-  # would otherwise forget them (verified in #12).
-  toxiproxy:
-    image: ghcr.io/shopify/toxiproxy:2.12.0
-    command: ["-host=0.0.0.0", "-config=/config/toxiproxy.json"]
-    volumes: ["./toxiproxy.json:/config/toxiproxy.json:ro"]
-    ports: ["127.0.0.1:${TOXIPROXY_PORT:-8474}:8474"]
-    healthcheck:
-      # Checks that the config was loaded, not just that the API answers: a broken
-      # toxiproxy.json loads no proxies at all. One name only (no shell in the image);
-      # the integration tests check that every link works.
-      test: ["CMD", "/toxiproxy-cli", "inspect", "orders-inventory"]
-      interval: 2s
-      timeout: 2s
-      retries: 10
-      start_period: 10s
-      start_interval: 1s
-
-  # Cleanup layer 3 (ADR-001): removes all faults when the control plane stops sending
-  # heartbeats (POST /heartbeat) for LEASE_TIMEOUT_S.
-  watchdog:
-    <<: *service
-    command: ["uvicorn", "chaosnet_lab.watchdog:app", "--host", "0.0.0.0", "--port", "8000"]
-    ports: ["127.0.0.1:${WATCHDOG_PORT:-8475}:8000"]
-    environment:
-      TOXIPROXY_URL: http://toxiproxy:8474
-      LEASE_TIMEOUT_S: ${LEASE_TIMEOUT_S:-5}
-      CHECK_INTERVAL_S: ${CHECK_INTERVAL_S:-0.5}
-    depends_on:
-      toxiproxy:
-        condition: service_healthy
-
-  inventory:
-    <<: *service
-    command: ["uvicorn", "chaosnet_lab.inventory:app", "--host", "0.0.0.0", "--port", "8000"]
-
-  orders:
-    <<: *service
-    command: ["uvicorn", "chaosnet_lab.orders:app", "--host", "0.0.0.0", "--port", "8000"]
-    environment:
-      DOWNSTREAM_URL: http://toxiproxy:8666  # proxy "orders-inventory"
-      TIMEOUT_S: ${ORDERS_TIMEOUT_S:-0.5}
-      MAX_RETRIES: ${ORDERS_MAX_RETRIES:-2}
-    depends_on:
-      inventory:
-        condition: service_healthy
-      toxiproxy:
-        condition: service_healthy
-
-  gateway:
-    <<: *service
-    command: ["uvicorn", "chaosnet_lab.gateway:app", "--host", "0.0.0.0", "--port", "8000"]
-    # The only published port, bound to localhost: every request enters through the gateway.
-    ports: ["127.0.0.1:${GATEWAY_PORT:-8080}:8000"]
-    environment:
-      DOWNSTREAM_URL: http://toxiproxy:8665  # proxy "gateway-orders"
-      # Must exceed the orders->inventory budget, (MAX_RETRIES + 1) * TIMEOUT_S = 1.5 s,
-      # or the gateway gives up before orders can report which hop failed.
-      TIMEOUT_S: ${GATEWAY_TIMEOUT_S:-2.0}
-      MAX_RETRIES: ${GATEWAY_MAX_RETRIES:-1}
-    depends_on:
-      orders:
-        condition: service_healthy
-      toxiproxy:
-        condition: service_healthy
+# Generated from topology.json by `uv run chaosnet-lab` (in backend/), see #73.
+# Do not edit: change topology.json and generate again. Valid YAML, written as JSON.
+{
+  "name": "chaosnet-lab",
+  "services": {
+    "toxiproxy": {
+      "image": "ghcr.io/shopify/toxiproxy:2.12.0",
+      "command": [
+        "-host=0.0.0.0",
+        "-config=/config/toxiproxy.json"
+      ],
+      "volumes": [
+        "./toxiproxy.json:/config/toxiproxy.json:ro"
+      ],
+      "ports": [
+        "127.0.0.1:${TOXIPROXY_PORT:-8474}:8474"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "/toxiproxy-cli",
+          "inspect",
+          "gateway-orders"
+        ],
+        "interval": "2s",
+        "timeout": "2s",
+        "retries": 10,
+        "start_period": "10s",
+        "start_interval": "1s"
+      }
+    },
+    "watchdog": {
+      "build": ".",
+      "image": "chaosnet-lab:dev",
+      "command": [
+        "uvicorn",
+        "chaosnet_lab.watchdog:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/healthz', timeout=1)"
+        ],
+        "interval": "2s",
+        "timeout": "2s",
+        "retries": 10,
+        "start_period": "10s",
+        "start_interval": "1s"
+      },
+      "ports": [
+        "127.0.0.1:${WATCHDOG_PORT:-8475}:8000"
+      ],
+      "environment": {
+        "TOXIPROXY_URL": "http://toxiproxy:8474",
+        "LEASE_TIMEOUT_S": "${LEASE_TIMEOUT_S:-5}",
+        "CHECK_INTERVAL_S": "${CHECK_INTERVAL_S:-0.5}"
+      },
+      "depends_on": {
+        "toxiproxy": {
+          "condition": "service_healthy"
+        }
+      }
+    },
+    "gateway": {
+      "build": ".",
+      "image": "chaosnet-lab:dev",
+      "command": [
+        "uvicorn",
+        "chaosnet_lab.service:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/healthz', timeout=1)"
+        ],
+        "interval": "2s",
+        "timeout": "2s",
+        "retries": 10,
+        "start_period": "10s",
+        "start_interval": "1s"
+      },
+      "environment": {
+        "SERVICE_NAME": "gateway",
+        "CALLS": "[{\"hop\": \"gateway->orders\", \"url\": \"http://toxiproxy:8665\", \"timeout_s\": 2.0, \"max_retries\": 1}]"
+      },
+      "depends_on": {
+        "orders": {
+          "condition": "service_healthy"
+        },
+        "toxiproxy": {
+          "condition": "service_healthy"
+        }
+      },
+      "ports": [
+        "127.0.0.1:${ENTRY_PORT:-8080}:8000"
+      ]
+    },
+    "orders": {
+      "build": ".",
+      "image": "chaosnet-lab:dev",
+      "command": [
+        "uvicorn",
+        "chaosnet_lab.service:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/healthz', timeout=1)"
+        ],
+        "interval": "2s",
+        "timeout": "2s",
+        "retries": 10,
+        "start_period": "10s",
+        "start_interval": "1s"
+      },
+      "environment": {
+        "SERVICE_NAME": "orders",
+        "CALLS": "[{\"hop\": \"orders->inventory\", \"url\": \"http://toxiproxy:8666\", \"timeout_s\": 0.5, \"max_retries\": 2}]"
+      },
+      "depends_on": {
+        "inventory": {
+          "condition": "service_healthy"
+        },
+        "toxiproxy": {
+          "condition": "service_healthy"
+        }
+      }
+    },
+    "inventory": {
+      "build": ".",
+      "image": "chaosnet-lab:dev",
+      "command": [
+        "uvicorn",
+        "chaosnet_lab.service:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/healthz', timeout=1)"
+        ],
+        "interval": "2s",
+        "timeout": "2s",
+        "retries": 10,
+        "start_period": "10s",
+        "start_interval": "1s"
+      },
+      "environment": {
+        "SERVICE_NAME": "inventory",
+        "CALLS": "[]"
+      },
+      "depends_on": {}
+    }
+  }
+}

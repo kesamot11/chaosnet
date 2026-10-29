@@ -4,7 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from chaosnet.labgen import service_config, toxiproxy_config
+import pytest
+
+from chaosnet.labgen import HEADER, compose_config, service_config, toxiproxy_config
 from chaosnet.topology import Topology
 
 LAB = Path(__file__).parents[2] / "lab"
@@ -113,3 +115,29 @@ def test_every_service_calls_exactly_the_ports_toxiproxy_listens_on() -> None:
         c["url"].rsplit(":", 1)[1] for s in t.services for c in calls(service_config(t, s.name))
     }
     assert called == listened
+
+
+# --- compose_config ---------------------------------------------------------------------
+
+
+def test_compose_has_the_control_plane_and_every_service() -> None:
+    lab = Topology.model_validate_json((LAB / "topology.json").read_text())
+    services = compose_config(lab)["services"]
+    assert list(services) == ["toxiproxy", "watchdog", "gateway", "orders", "inventory"]
+    assert services["orders"]["command"][1] == "chaosnet_lab.service:app"
+    assert services["toxiproxy"]["healthcheck"]["test"][-1] == "gateway-orders"
+
+
+def test_a_service_cannot_take_the_name_of_the_control_plane() -> None:
+    with pytest.raises(ValueError, match="toxiproxy"):
+        compose_config(topology(("a", "toxiproxy")))
+
+
+def test_the_lab_files_are_generated_from_topology_json() -> None:
+    # drift check: someone edited compose.yaml or toxiproxy.json by hand, or changed
+    # topology.json without generating again. Fix: `uv run chaosnet-lab`.
+    lab = Topology.model_validate_json((LAB / "topology.json").read_text())
+    compose = (LAB / "compose.yaml").read_text()
+    assert compose.startswith(HEADER)
+    assert json.loads(compose.removeprefix(HEADER)) == compose_config(lab)
+    assert json.loads((LAB / "toxiproxy.json").read_text()) == toxiproxy_config(lab)

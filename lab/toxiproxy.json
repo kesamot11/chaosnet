@@ -1,4 +1,14 @@
 [
-  {"name": "gateway-orders", "listen": "0.0.0.0:8665", "upstream": "orders:8000", "enabled": true},
-  {"name": "orders-inventory", "listen": "0.0.0.0:8666", "upstream": "inventory:8000", "enabled": true}
+  {
+    "name": "gateway-orders",
+    "listen": "0.0.0.0:8665",
+    "upstream": "orders:8000",
+    "enabled": true
+  },
+  {
+    "name": "orders-inventory",
+    "listen": "0.0.0.0:8666",
+    "upstream": "inventory:8000",
+    "enabled": true
+  }
 ]

@@ -25,11 +25,11 @@ WATCHDOG_PORT = "18475"
 ENV = {
     **os.environ,
     "COMPOSE_PROJECT_NAME": "chaosnet-lab-test",
-    "GATEWAY_PORT": PORT,
+    "ENTRY_PORT": PORT,
     "TOXIPROXY_PORT": TOXIPROXY_PORT,
     "WATCHDOG_PORT": WATCHDOG_PORT,
 }
-# orders->inventory defaults from compose.yaml: 0.5 s timeout, 2 retries
+# orders->inventory in topology.json: 0.5 s timeout, 2 retries
 ORDERS_BUDGET_S = (2 + 1) * 0.5
 
 
@@ -64,9 +64,9 @@ def unpause(service: str) -> None:
     raise TimeoutError(f"{service} not healthy 10 s after unpause")
 
 
-def order(item_id: str = "42") -> tuple[httpx.Response, float]:
+def order() -> tuple[httpx.Response, float]:
     start = time.perf_counter()
-    res = httpx.post(f"http://127.0.0.1:{PORT}/orders", json={"item_id": item_id}, timeout=10)
+    res = httpx.post(f"http://127.0.0.1:{PORT}/orders", json={"item_id": "42"}, timeout=10)
     return res, time.perf_counter() - start
 
 
@@ -89,15 +89,11 @@ def test_all_services_are_healthy() -> None:
 
 
 def test_request_flows_through_all_services() -> None:
-    res, _ = order("42")
+    res, _ = order()
     assert res.status_code == 200
-    assert res.json()["item"]["item_id"] == "42"
-    assert res.json()["path"] == ["gateway", "orders", "inventory"]
-
-
-def test_unknown_item_is_404_end_to_end() -> None:
-    res, _ = order("does-not-exist")
-    assert res.status_code == 404
+    inventory: dict[str, object] = {"service": "inventory", "calls": []}
+    orders: dict[str, object] = {"service": "orders", "calls": [inventory]}
+    assert res.json() == {"service": "gateway", "calls": [orders]}
 
 
 def test_only_gateway_and_control_apis_are_published() -> None:
@@ -131,19 +127,6 @@ def test_hanging_inventory_gives_504_within_budget_then_recovers() -> None:
         unpause("inventory")
     res, _ = order()
     assert res.status_code == 200
-
-
-def test_retries_are_configurable_without_rebuild() -> None:
-    no_retries = {**ENV, "ORDERS_MAX_RETRIES": "0"}
-    compose("up", "-d", "--wait", "--no-build", "orders", env=no_retries)
-    compose("pause", "inventory")
-    try:
-        res, elapsed = order()
-        assert res.status_code == 504
-        assert 0.5 <= elapsed < 1.0, "one attempt of 0.5 s, not three"
-    finally:
-        unpause("inventory")
-        compose("up", "-d", "--wait", "--no-build", "orders")
 
 
 def test_proxies_survive_a_toxiproxy_restart() -> None:
