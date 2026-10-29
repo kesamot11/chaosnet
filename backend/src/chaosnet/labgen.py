@@ -5,6 +5,7 @@ and calls the services it links to; every link goes through its own Toxiproxy pr
 `docker compose up` stays manual: the controller never gets the Docker socket (ADR-002).
 """
 
+import argparse
 import json
 from pathlib import Path
 from typing import Any
@@ -140,11 +141,20 @@ def compose_config(topology: Topology) -> dict[str, Any]:
     return {"name": "chaosnet-lab", "services": services}
 
 
-def main() -> None:
-    """Write lab/compose.yaml and lab/toxiproxy.json from lab/topology.json."""
-    lab = Path(__file__).parents[3] / "lab"
-    topology = Topology.model_validate_json((lab / "topology.json").read_text())
+def write_lab(topology_file: Path, out: Path) -> None:
+    """Write compose.yaml and toxiproxy.json for the topology in `topology_file` to `out`."""
+    topology = Topology.model_validate_json(topology_file.read_text())
     compose = HEADER + json.dumps(compose_config(topology), indent=2) + "\n"
-    (lab / "compose.yaml").write_text(compose)
-    (lab / "toxiproxy.json").write_text(json.dumps(toxiproxy_config(topology), indent=2) + "\n")
-    print(f"wrote {lab / 'compose.yaml'} and {lab / 'toxiproxy.json'}")
+    (out / "compose.yaml").write_text(compose)
+    (out / "toxiproxy.json").write_text(json.dumps(toxiproxy_config(topology), indent=2) + "\n")
+
+
+def main() -> None:
+    """uv run chaosnet-lab [--topology FILE] [--out DIR]; by default the lab in lab/."""
+    lab = Path(__file__).parents[3] / "lab"
+    parser = argparse.ArgumentParser(description="Generate the lab from a topology.")
+    parser.add_argument("--topology", type=Path, default=lab / "topology.json")
+    parser.add_argument("--out", type=Path, default=lab, help="directory to write to")
+    args = parser.parse_args()
+    write_lab(args.topology, args.out)
+    print(f"wrote {args.out / 'compose.yaml'} and {args.out / 'toxiproxy.json'}")
