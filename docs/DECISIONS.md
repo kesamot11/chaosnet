@@ -372,3 +372,63 @@ Claude recommended Sprint 5 to keep the sprint at ~25 points; Tomáš chose now 
 - The committed `compose.yaml` and `toxiproxy.json` become generated files; CI must fail
   when they drift from `topology.json` (#80).
 - `TARGET_URL` can be derived from the topology's entry service instead of configured.
+
+---
+
+## ADR-006: One generic lab service, and the decisions made while building M4
+
+- **Status:** Accepted
+- **Date:** 2026-10-29 (end of Sprint 4)
+- **Issues:** #62, #73, #78, #79, #80
+- **Decided by:** Tomáš, except decision 4 (Claude, reviewed and approved by Tomáš in #111)
+
+### Context
+
+ADR-005 decided to generate the lab from `topology.json`. Building it raised questions
+the plan had not answered: what runs in a service nobody wrote code for, how a branch
+behaves, where settings live, and how the UI shows time.
+
+### Decisions
+
+**1. Every node runs one generic service** (`lab/src/chaosnet_lab/service.py`).
+It calls every service it links to and a leaf answers at once. The shop (items, stock,
+404 for an unknown item) is gone. *Reason:* the lab exists to measure the network
+between services; with code per service, the JSON would need Python next to it.
+
+**2. A service calls its callees at the same time** and waits for all of them, so it
+waits for the slowest. *Reason (Tomáš):* faster, and how most services that gather data
+from several others behave. Verified end to end in #80.
+
+**3. One failed callee fails the whole request**, naming the hop (`failed_hop`).
+
+**4. Services call each other with GET** (the entry still takes the load generator's
+POST). A generic service changes nothing, so a call may be repeated, and
+`call_downstream` retries a GET after a timeout. This keeps the orders→inventory budget
+(3 × 0.5 s) the integration tests rely on.
+
+**5. Per-link timeouts and retries live only in `topology.json`.** The environment
+overrides (`ORDERS_MAX_RETRIES`, ...) are gone. *Reason:* two ways to set one value are
+two truths. For the same reason one function, `proxy_port`, gives a link's proxy port to
+both halves of the generator.
+
+**6. The UI keeps polling while the controller does not answer**, every 30 s instead of
+every second, and back to 1 s once it answers. *Reason (Tomáš):* stopping would show
+`inject` forever; after a restart reconcile writes `aborted`, and only a poll can show it.
+
+**7. Latency over time is grouped by the second a request was sent**, a second without
+requests is a gap (not left out, not 0), and the graph breaks its line at phase borders.
+*Reason (Tomáš):* by answer time a fault would appear seconds late; a line through a gap
+or across a border shows values nobody measured.
+
+**8. The graph is plain SVG, two charts on one time axis.** This reverses ADR-005
+decision 4 for the graph only (React Flow stays for the topology). *Reason (Tomáš):* one
+chart of a few dozen points does not justify a chart library and its dependencies; two
+axes in one chart are hard to read.
+
+### Consequences
+
+- Experiments cannot model application behaviour (a slow database, a 404); a service
+  type in the topology would be the way back if needed.
+- `compose.yaml` is generated as JSON with a YAML comment header (JSON is valid YAML), so
+  no YAML library; a test fails when it drifts from `topology.json`.
+- A topology service may not be called `toxiproxy` or `watchdog`.
