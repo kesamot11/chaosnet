@@ -22,12 +22,14 @@ LAB_DIR = Path(__file__).parents[2]
 PORT = "18080"
 TOXIPROXY_PORT = "18474"
 WATCHDOG_PORT = "18475"
+PROMETHEUS_PORT = "19090"
 ENV = {
     **os.environ,
     "COMPOSE_PROJECT_NAME": "chaosnet-lab-test",
     "ENTRY_PORT": PORT,
     "TOXIPROXY_PORT": TOXIPROXY_PORT,
     "WATCHDOG_PORT": WATCHDOG_PORT,
+    "PROMETHEUS_PORT": PROMETHEUS_PORT,
 }
 # orders->inventory in topology.json: 0.5 s timeout, 2 retries
 ORDERS_BUDGET_S = (2 + 1) * 0.5
@@ -85,6 +87,7 @@ def test_all_services_are_healthy() -> None:
         "inventory": "healthy",
         "toxiproxy": "healthy",
         "watchdog": "healthy",
+        "prometheus": "healthy",
     }
 
 
@@ -96,11 +99,34 @@ def test_request_flows_through_all_services() -> None:
     assert res.json() == {"service": "gateway", "calls": [orders]}
 
 
+def counters() -> dict[str, float]:
+    """Requests per service and ok attempts per hop, as Prometheus has them now."""
+    time.sleep(2.5)  # Prometheus scrapes every 1 s: wait until it has seen the latest
+    url = f"http://127.0.0.1:{PROMETHEUS_PORT}/api/v1/query"
+    values: dict[str, float] = {}
+    for query, label in (
+        ("lab_requests_total", "service"),
+        ('lab_attempts_total{outcome="ok"}', "hop"),
+    ):
+        result = httpx.get(url, params={"query": query}, timeout=5).json()["data"]["result"]
+        values |= {r["metric"][label]: float(r["value"][1]) for r in result}
+    return values
+
+
+def test_one_request_is_counted_once_per_service_and_hop() -> None:
+    before = counters()
+    res, _ = order()
+    assert res.status_code == 200
+    after = counters()
+    expected = ["gateway", "orders", "inventory", "gateway->orders", "orders->inventory"]
+    assert {k: after[k] - before.get(k, 0) for k in expected} == dict.fromkeys(expected, 1)
+
+
 def test_only_gateway_and_control_apis_are_published() -> None:
     services = [json.loads(line) for line in compose("ps", "--format", "json").splitlines()]
     published = {s["Service"] for s in services if any(p["PublishedPort"] for p in s["Publishers"])}
-    # gateway for traffic; toxiproxy and watchdog are control APIs; services stay internal
-    assert published == {"gateway", "toxiproxy", "watchdog"}
+    # gateway for traffic; toxiproxy, watchdog and prometheus are control APIs
+    assert published == {"gateway", "toxiproxy", "watchdog", "prometheus"}
 
 
 def test_stopped_inventory_gives_fast_503_then_recovers() -> None:

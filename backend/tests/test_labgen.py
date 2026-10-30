@@ -6,7 +6,13 @@ from typing import Any
 
 import pytest
 
-from chaosnet.labgen import HEADER, compose_config, service_config, toxiproxy_config
+from chaosnet.labgen import (
+    HEADER,
+    compose_config,
+    prometheus_config,
+    service_config,
+    toxiproxy_config,
+)
 from chaosnet.topology import Topology
 
 LAB = Path(__file__).parents[2] / "lab"
@@ -123,7 +129,14 @@ def test_every_service_calls_exactly_the_ports_toxiproxy_listens_on() -> None:
 def test_compose_has_the_control_plane_and_every_service() -> None:
     lab = Topology.model_validate_json((LAB / "topology.json").read_text())
     services = compose_config(lab)["services"]
-    assert list(services) == ["toxiproxy", "watchdog", "gateway", "orders", "inventory"]
+    assert list(services) == [
+        "toxiproxy",
+        "watchdog",
+        "prometheus",
+        "gateway",
+        "orders",
+        "inventory",
+    ]
     assert services["orders"]["command"][1] == "chaosnet_lab.service:app"
     assert services["toxiproxy"]["healthcheck"]["test"][-1] == "gateway-orders"
 
@@ -141,3 +154,15 @@ def test_the_lab_files_are_generated_from_topology_json() -> None:
     assert compose.startswith(HEADER)
     assert json.loads(compose.removeprefix(HEADER)) == compose_config(lab)
     assert json.loads((LAB / "toxiproxy.json").read_text()) == toxiproxy_config(lab)
+    prometheus = (LAB / "prometheus.yml").read_text()
+    assert json.loads(prometheus.removeprefix(HEADER)) == prometheus_config(lab)
+
+
+def test_prometheus_scrapes_every_service_by_name() -> None:
+    lab = Topology.model_validate_json((LAB / "topology.json").read_text())
+    targets = prometheus_config(lab)["scrape_configs"][0]["static_configs"]
+    assert [(t["targets"], t["labels"]) for t in targets] == [
+        (["gateway:8000"], {"service": "gateway"}),
+        (["orders:8000"], {"service": "orders"}),
+        (["inventory:8000"], {"service": "inventory"}),
+    ]

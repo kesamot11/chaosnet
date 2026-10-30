@@ -3,6 +3,7 @@ from collections.abc import Callable
 
 import httpx
 import pytest
+from prometheus_client import REGISTRY
 
 from chaosnet_lab.client import DownstreamError, call_downstream
 
@@ -190,3 +191,28 @@ def test_post_connect_timeout_is_still_retried() -> None:
     call, fake = run([httpx.ConnectTimeout("timed out"), 200], max_retries=2, method="POST")
     assert call().status_code == 200
     assert len(fake.requests) == 2
+
+
+# --- attempts are counted by the caller (#116) -------------------------------------------
+
+
+def attempts(outcome: str) -> float:
+    return REGISTRY.get_sample_value("lab_attempts_total", {"hop": HOP, "outcome": outcome}) or 0
+
+
+def test_every_attempt_is_counted_with_its_outcome() -> None:
+    before = {o: attempts(o) for o in ("ok", "timeout", "connection_error", "http_error")}
+    call, _ = run([refused(), timed_out(), 200])
+    call()
+    call2, _ = run([503])
+    call2()
+    after = {o: attempts(o) - before[o] for o in before}
+    assert after == {"ok": 1, "timeout": 1, "connection_error": 1, "http_error": 1}
+
+
+def test_a_hanging_service_is_counted_once_per_attempt() -> None:
+    before = attempts("timeout")
+    call, _ = run([timed_out()], max_retries=2)
+    with pytest.raises(DownstreamError):
+        call()
+    assert attempts("timeout") - before == 3

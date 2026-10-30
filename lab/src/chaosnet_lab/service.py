@@ -22,8 +22,12 @@ from typing import Any
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
 
 from chaosnet_lab.client import DownstreamError, call_downstream
+
+# Counted by the service itself; a service that hangs counts nothing (#116, see client.py).
+REQUESTS = Counter("lab_requests", "Requests this service received", ["service"])
 
 
 @dataclass(frozen=True)
@@ -70,11 +74,18 @@ def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/metrics")
+def metrics() -> Response:
+    """Read by Prometheus inside the lab network; the service's port is never published."""
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
 # POST from the load generator at the entry, GET between services: a service changes
 # nothing, so a call may be repeated, and call_downstream retries a GET after a timeout.
 @app.api_route("/orders", methods=["GET", "POST"])
 async def handle(request: Request) -> Response:
     state = request.app.state
+    REQUESTS.labels(state.name).inc()
     # ponytail: waits for every callee even after one failed; cancel the rest if a slow
     # branch ever makes failures look slower than they are.
     answers = await asyncio.gather(*(call(state.client, hop) for hop in state.calls))

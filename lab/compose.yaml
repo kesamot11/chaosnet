@@ -67,6 +67,31 @@
         }
       }
     },
+    "prometheus": {
+      "image": "prom/prometheus:v3.15.1",
+      "command": [
+        "--config.file=/etc/prometheus/prometheus.yml"
+      ],
+      "volumes": [
+        "./prometheus.yml:/etc/prometheus/prometheus.yml:ro"
+      ],
+      "ports": [
+        "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+      ],
+      "healthcheck": {
+        "test": [
+          "CMD",
+          "wget",
+          "-qO-",
+          "http://127.0.0.1:9090/-/ready"
+        ],
+        "interval": "2s",
+        "timeout": "2s",
+        "retries": 10,
+        "start_period": "10s",
+        "start_interval": "1s"
+      }
+    },
     "gateway": {
       "build": ".",
       "image": "chaosnet-lab:dev",

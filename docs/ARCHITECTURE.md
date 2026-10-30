@@ -43,7 +43,8 @@ flowchart LR
 |---|---|---|
 | lab service | `lab/src/chaosnet_lab/service.py` | The one program every node runs (gateway, orders, inventory are names in `lab/topology.json`). Calls every service it links to at the same time, passes a failure on naming the hop; a leaf answers at once. Config (`SERVICE_NAME`, `CALLS`) validated at startup. |
 | lab generator | `backend/src/chaosnet/labgen.py` | `uv run chaosnet-lab` writes `lab/compose.yaml` and `lab/toxiproxy.json` from `lab/topology.json` (#73). A test fails when they drift apart. |
-| `call_downstream` | `lab/src/chaosnet_lab/client.py` | Per-attempt timeout, retries on transport failure, 503/504 classification. |
+| `call_downstream` | `lab/src/chaosnet_lab/client.py` | Per-attempt timeout, retries on transport failure, 503/504 classification. Counts every attempt (`lab_attempts_total{hop, outcome}`). |
+| Prometheus | generated into `lab/compose.yaml`, `lab/prometheus.yml` | Scrapes every service's `/metrics` each second inside the lab network; API on `127.0.0.1:9090`. Counts requests per service and attempts per hop (#116). |
 | load generator | `backend/src/chaosnet/loadgen.py` | Open-model load at a fixed rate; latency from scheduled send time; JSON report. |
 | `percentile` | `backend/src/chaosnet/stats.py` | Nearest-rank percentiles for reports. |
 | watchdog | `lab/src/chaosnet_lab/watchdog.py` | Cleanup layer 3: `POST /heartbeat` renews a 5 s lease; when it expires, `POST /reset` on Toxiproxy, retried until it succeeds. API on `127.0.0.1:8475`. |

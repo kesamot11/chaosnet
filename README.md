@@ -55,6 +55,11 @@ cd backend && uv run chaosnet-lab
 
 Set `ENTRY_PORT` if 8080 is taken.
 
+Prometheus counts the requests every service received (`lab_requests_total`) and every
+attempt on every link, with its outcome (`lab_attempts_total`), counted by the caller so
+attempts to a hanging service are counted too. Query it at http://127.0.0.1:9090
+(`PROMETHEUS_PORT` to change), e.g. `lab_attempts_total{hop="orders->inventory"}`.
+
 Generate load against it (open model, so a slow lab cannot hide its latency):
 
 ```bash
