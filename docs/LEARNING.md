@@ -388,3 +388,46 @@ Own-words questions:
   the API cannot use it for a DoS. Also SSRF; trust boundary.
 
 Revisit the controller-crash timeline (watchdog vs. reconcile) in the Sprint 4 check.
+
+---
+
+## 2026-10-29: Sprint 4, TypeScript and React
+
+- `==` converts types before comparing (`"1" == 1`); `===` does not. Use `===`,
+  except `x != null`, which catches `null` and `undefined` at once.
+- Operator precedence: `a ?? 0 / b` is `a ?? (0 / b)`. Brackets: `(a ?? 0) / b`.
+- `0 / 0` is `NaN` in JavaScript, not an exception as in Python. Return `null` for
+  "unknown", never `0`: 0 % errors claims a measurement that did not happen.
+- Floats: `1 - 0.9` is not `0.1`. Count with whole numbers first:
+  `(scheduled - ok) / scheduled`, the same arithmetic as the backend, so both agree.
+- React: change the state, the page follows (`setSending(true)` disables the button,
+  you never disable it yourself). Inside JSX braces only expressions, never `const`.
+- An object is always truthy: `verdict ? …` is true for `{passed: false}`. Ask the field.
+- Closure: an inner function sees the variables of the function around it (`submit`
+  sees `values` and `link`; `walk` saw `calls` in #72).
+- `key` in a `.map`: tells React which row is which when the list changes.
+- One truth, one place: `END_STATES`, `proxy_port`, settings only in `topology.json`.
+
+---
+
+## 2026-10-29: Sprint 4 interview check
+
+Multiple-choice quiz: **10/10**. Own-words questions:
+
+- *`kill -9` of the controller during inject, restart 60 s later: what happens?* Got
+  the watchdog and reconcile, but two inexact points. **Weak spot:** said the watchdog
+  "notices the controller is not answering" and that `aborted` appears before the
+  restart. In fact the watchdog only waits for heartbeats (a lease; it never asks the
+  controller) and removes the fault ~5 s after the last one. Only the controller writes
+  the database, so the record says `inject` for the whole 60 s (stale state) until
+  reconcile writes `aborted` at the restart. **The watchdog protects the lab; reconcile
+  corrects the record.**
+- *What does the UI do when the controller stops answering, and why not stop?* After a
+  hint: asks every 30 s instead of every second, back to 1 s when it answers; stopping
+  would show a stale state forever.
+- *What did one generic service gain and lose?* On my own: freedom to build any
+  system from JSON, but services cannot do anything we want. Examples: no code per
+  service, branching, no drift; lost a slow database or a 404, so we measure the
+  network, not the application.
+
+Revisit stale state (who writes what, and when) in the Sprint 5 check.
