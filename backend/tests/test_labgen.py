@@ -241,3 +241,19 @@ def test_backoff_can_cause_the_warning() -> None:
     bad = chain(go={"timeout_s": 2.0}, oi={"timeout_s": 0.5, "max_retries": 2, "backoff_s": 0.3})
     assert amplification_warnings(ok) == []  # 1.8 s < 2.0 s
     assert len(amplification_warnings(bad)) == 1  # 1.5 + 0.3 + 0.6 = 2.4 s > 2.0 s
+
+
+def test_the_warning_names_the_called_service() -> None:
+    t = Topology.model_validate(
+        {
+            "version": 1,
+            "services": [{"name": "a", "port": 8080}, {"name": "b"}, {"name": "c"}],
+            "links": [
+                {"from": "a", "to": "b", "timeout_s": 0.5},
+                {"from": "b", "to": "c", "timeout_s": 0.4, "max_retries": 1},
+            ],
+        }
+    )
+    assert amplification_warnings(t) == [
+        "a-b times out after 0.5 s, but b may take 0.8 s to answer"
+    ]

@@ -46,7 +46,8 @@ def amplification_warnings(topology: Topology) -> list[str]:
         time = answer_time_s(topology, link.to)
         if time >= link.timeout_s:
             res.append(
-                f"{link.name} times out after {link.timeout_s} s, but {link.to} may take {time} s to answer"
+                f"{link.name} times out after {link.timeout_s} s, "
+                f"but {link.to} may take {time} s to answer"
             )
     return res
 
