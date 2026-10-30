@@ -1,6 +1,17 @@
-import pytest
+from typing import Any
 
-from chaosnet.experiments import Hypothesis, InvalidTransition, State, Verdict, judge, transition
+import pytest
+from pydantic import ValidationError
+
+from chaosnet.experiments import (
+    FaultSpec,
+    Hypothesis,
+    InvalidTransition,
+    State,
+    Verdict,
+    judge,
+    transition,
+)
 
 HAPPY_PATH = [State.PENDING, State.BASELINE, State.INJECT, State.RECOVER, State.COMPLETED]
 RUNNING = [State.BASELINE, State.INJECT, State.RECOVER]
@@ -104,3 +115,26 @@ def test_dropped_and_failed_requests_count_as_errors() -> None:
     }
     verdict = judge(summary, Hypothesis(max_p95_ms=500, max_error_rate=0.01))
     assert verdict.reasons == ["error rate 2.0 % > 1.0 %"]  # 30 of 1500
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {
+            "kind": "latency",
+            "link": "orders-inventory",
+            "ms": 200,
+            "kbps": 150,
+        },  # latency, ale s kbps
+        {
+            "kind": "bandwidth",
+            "link": "orders-inventory",
+            "kbps": 50,
+            "ms": 10,
+        },  # bandwidth, ale s ms
+        {"kind": "reset_peer", "link": "orders-inventory", "ms": 150},  # reset s ms nebo kbps
+    ],
+)
+def test_a_value_that_does_not_belong_to_the_kind_is_rejected(data: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError):
+        FaultSpec.model_validate(data)
