@@ -108,3 +108,11 @@ class ExperimentSpec(BaseModel):
     load: LoadSpec
     phases_s: PhasesSpec
     hypothesis: Hypothesis
+
+    @model_validator(mode="after")
+    def every_phase_sends_a_request(self) -> ExperimentSpec:
+        for phase in ("baseline", "inject", "recover"):
+            seconds = getattr(self.phases_s, phase)
+            if seconds * self.load.rate < 1:
+                raise ValueError(f"{phase}: won't produce any requests")
+        return self

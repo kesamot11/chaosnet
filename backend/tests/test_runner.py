@@ -90,7 +90,7 @@ def test_error_during_inject_fails_the_experiment_and_removes_the_fault(store: S
 
 def test_abort_during_inject_removes_the_fault(store: Store) -> None:
     lab = Lab(FakeToxiproxy())
-    spec = {**SPEC, "phases_s": {"baseline": 0.01, "inject": 5, "recover": 0.01}}
+    spec = {**SPEC, "phases_s": {"baseline": 0.02, "inject": 5, "recover": 0.02}}
     exp = store.get(run(store, lab, spec, abort_after_s=0.1))
     assert (exp.state, exp.reason) == (State.ABORTED, "aborted by user")
     assert lab.toxiproxy.toxics[LINK] == []
