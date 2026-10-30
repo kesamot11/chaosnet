@@ -243,3 +243,48 @@ def test_without_backoff_there_is_no_wait() -> None:
 def test_jitter_spreads_the_wait_from_zero_to_the_full_backoff() -> None:
     assert retry_wait(1, 0.1, 0.0) == 0
     assert retry_wait(1, 0.1, 1.0) == pytest.approx(0.2)
+
+
+def call_with_backoff(script: Script, backoff_s: float, method: str = "GET") -> list[float]:
+    """Run call_downstream with 2 retries and a fake sleep; return the waits it asked for."""
+    waits: list[float] = []
+
+    async def fake_sleep(seconds: float) -> None:
+        waits.append(seconds)
+
+    async def go() -> None:
+        fake = FakeDownstream(script)
+        async with httpx.AsyncClient(transport=httpx.MockTransport(fake.handle)) as client:
+            try:
+                await call_downstream(
+                    client,
+                    method,
+                    URL,
+                    hop=HOP,
+                    timeout_s=0.5,
+                    max_retries=2,
+                    backoff_s=backoff_s,
+                    sleep=fake_sleep,
+                )
+            except DownstreamError:
+                pass
+
+    asyncio.run(go())
+    return waits
+
+
+def test_waits_between_attempts_but_not_after_the_last() -> None:
+    waits = call_with_backoff([timed_out()], backoff_s=0.1)
+    assert len(waits) == 2  # 3 attempts, 2 gaps
+    assert 0 <= waits[0] <= 0.1
+    assert 0 <= waits[1] <= 0.2
+
+
+def test_no_wait_without_backoff_or_after_success() -> None:
+    assert call_with_backoff([timed_out()], backoff_s=0.0) == []
+    assert call_with_backoff([200], backoff_s=0.1) == []
+    assert len(call_with_backoff([refused(), 200], backoff_s=0.1)) == 1
+
+
+def test_no_wait_when_a_post_is_not_retried() -> None:
+    assert call_with_backoff([timed_out()], backoff_s=0.1, method="POST") == []

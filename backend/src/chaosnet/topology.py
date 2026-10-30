@@ -30,6 +30,7 @@ class Link(BaseModel):
     to: str
     timeout_s: float = Field(default=1.0, gt=0)  # per attempt
     max_retries: int = Field(default=0, ge=0)  # no retries unless asked: retries amplify load
+    backoff_s: float = Field(default=0.0, ge=0)  # wait before a retry, doubled each time (#119)
 
     @property
     def name(self) -> str:

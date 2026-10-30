@@ -73,6 +73,7 @@ def test_a_service_calls_through_the_proxy_of_its_link() -> None:
             "url": "http://toxiproxy:8666",
             "timeout_s": 0.5,
             "max_retries": 2,
+            "backoff_s": 0.0,
         }
     ]
     assert orders["depends_on"] == {
