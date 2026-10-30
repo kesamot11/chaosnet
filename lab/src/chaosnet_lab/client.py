@@ -16,7 +16,7 @@ def retry_wait(attempt: int, backoff_s: float, rand: float) -> float:
     `rand` (0.0–1.0, random.random() in real calls), so callers that failed together do
     not all retry at the same moment. backoff_s 0 means retry at once, as before.
     """
-    raise NotImplementedError("Tomáš, #119")
+    return ((2**attempt) * backoff_s) * rand
 
 
 class DownstreamError(Exception):
