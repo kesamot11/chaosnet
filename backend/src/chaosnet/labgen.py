@@ -23,7 +23,15 @@ def proxy_port(topology: Topology, link: Link) -> int:
 def answer_time_s(topology: Topology, service: str) -> float:
     """The longest `service` can take to answer: its slowest outgoing link, counting every
     attempt's timeout and the longest backoff waits between them. 0 for a leaf (#119)."""
-    raise NotImplementedError("Tomáš, #119")
+    outgoing: list[Link] = []
+    for link in topology.links:
+        if link.from_ == service:
+            outgoing.append(link)
+    res = 0
+    for link in outgoing:
+        waits = sum(link.backoff_s * 2**i for i in range(link.max_retries))
+        res = max(res, (link.max_retries + 1) * link.timeout_s + waits)
+    return res
 
 
 def amplification_warnings(topology: Topology) -> list[str]:
@@ -33,7 +41,14 @@ def amplification_warnings(topology: Topology) -> list[str]:
     load on it (EXP-004, configuration B). A warning, not an error: a lab must be able to
     run a bad configuration on purpose.
     """
-    raise NotImplementedError("Tomáš, #119")
+    res: list[str] = []
+    for link in topology.links:
+        time = answer_time_s(topology, link.to)
+        if time >= link.timeout_s:
+            res.append(
+                f"{link.name} times out after {link.timeout_s} s, but {link.to} may take {time} s to answer"
+            )
+    return res
 
 
 def toxiproxy_config(topology: Topology) -> list[dict[str, Any]]:
