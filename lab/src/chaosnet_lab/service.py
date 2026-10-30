@@ -8,7 +8,8 @@ between services, not business logic (plan in #73, decisions by Tomáš).
 Configuration, written by the generator (backend/src/chaosnet/labgen.py):
 - SERVICE_NAME: this service, e.g. "orders"
 - CALLS: one entry per link from this service, as JSON, e.g.
-  [{"hop": "orders->inventory", "url": "http://toxiproxy:8666", "timeout_s": 0.5, "max_retries": 2}]
+  [{"hop": "orders->inventory", "url": "http://toxiproxy:8666", "timeout_s": 0.5,
+    "max_retries": 2, "backoff_s": 0.0}]
 """
 
 import asyncio
@@ -36,6 +37,7 @@ class Hop:
     url: str  # the link's Toxiproxy proxy, so faults can be added per link
     timeout_s: float  # per attempt
     max_retries: int
+    backoff_s: float = 0.0  # see client.retry_wait
 
     @classmethod
     def parse(cls, raw: dict[str, Any]) -> Hop:
@@ -50,7 +52,10 @@ class Hop:
             raise ValueError(f"timeout_s must be > 0, got {timeout_s}")
         if max_retries < 0:
             raise ValueError(f"max_retries must be >= 0, got {max_retries}")
-        return cls(str(raw["hop"]), url, timeout_s, max_retries)
+        backoff_s = float(raw.get("backoff_s", 0.0))
+        if backoff_s < 0:
+            raise ValueError(f"backoff_s must be >= 0, got {backoff_s}")
+        return cls(str(raw["hop"]), url, timeout_s, max_retries, backoff_s)
 
 
 def calls_from_env() -> list[Hop]:
@@ -105,6 +110,7 @@ async def call(client: httpx.AsyncClient, hop: Hop) -> dict[str, Any] | Response
             hop=hop.name,
             timeout_s=hop.timeout_s,
             max_retries=hop.max_retries,
+            backoff_s=hop.backoff_s,
         )
     except DownstreamError as e:
         reason = "unavailable" if e.status_code == 503 else "timeout"

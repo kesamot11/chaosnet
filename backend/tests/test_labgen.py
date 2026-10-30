@@ -8,6 +8,8 @@ import pytest
 
 from chaosnet.labgen import (
     HEADER,
+    amplification_warnings,
+    answer_time_s,
     compose_config,
     prometheus_config,
     service_config,
@@ -73,6 +75,7 @@ def test_a_service_calls_through_the_proxy_of_its_link() -> None:
             "url": "http://toxiproxy:8666",
             "timeout_s": 0.5,
             "max_retries": 2,
+            "backoff_s": 0.0,
         }
     ]
     assert orders["depends_on"] == {
@@ -165,4 +168,92 @@ def test_prometheus_scrapes_every_service_by_name() -> None:
         (["gateway:8000"], {"service": "gateway"}),
         (["orders:8000"], {"service": "orders"}),
         (["inventory:8000"], {"service": "inventory"}),
+    ]
+
+
+# --- answer_time_s and amplification_warnings (#119) ------------------------------------
+
+
+def chain(**links: dict[str, Any]) -> Topology:
+    """gateway -> orders -> inventory, each link's fields given by name, e.g. go={...}."""
+    defaults = {"go": ("gateway", "orders"), "oi": ("orders", "inventory")}
+    return Topology.model_validate(
+        {
+            "version": 1,
+            "services": [
+                {"name": "gateway", "port": 8080},
+                {"name": "orders"},
+                {"name": "inventory"},
+            ],
+            "links": [
+                {"from": f, "to": t, **links.get(key, {})} for key, (f, t) in defaults.items()
+            ],
+        }
+    )
+
+
+def test_a_leaf_answers_at_once() -> None:
+    assert answer_time_s(chain(), "inventory") == 0
+
+
+def test_answer_time_counts_every_attempt() -> None:
+    t = chain(oi={"timeout_s": 0.5, "max_retries": 2})
+    assert answer_time_s(t, "orders") == pytest.approx(1.5)  # 3 attempts x 0.5 s
+
+
+def test_answer_time_counts_the_longest_backoff_waits() -> None:
+    # waits after attempts 0 and 1: up to 0.1 x 2^0 and 0.1 x 2^1, so 0.3 s in all
+    t = chain(oi={"timeout_s": 0.5, "max_retries": 2, "backoff_s": 0.1})
+    assert answer_time_s(t, "orders") == pytest.approx(1.8)
+
+
+def test_answer_time_is_the_slowest_of_several_links() -> None:
+    t = Topology.model_validate(
+        {
+            "version": 1,
+            "services": [{"name": "a", "port": 8080}, {"name": "b"}, {"name": "c"}],
+            "links": [
+                {"from": "a", "to": "b", "timeout_s": 1.0},
+                {"from": "a", "to": "c", "timeout_s": 0.2, "max_retries": 9},
+            ],
+        }
+    )
+    assert answer_time_s(t, "a") == pytest.approx(2.0)  # 10 x 0.2 s beats 1 x 1.0 s
+
+
+def test_the_default_lab_has_no_warning() -> None:
+    lab = Topology.model_validate_json((LAB / "topology.json").read_text())
+    assert amplification_warnings(lab) == []
+
+
+def test_exp_004_configuration_b_is_warned_about() -> None:
+    t = chain(
+        go={"timeout_s": 1.0, "max_retries": 1},
+        oi={"timeout_s": 0.5, "max_retries": 2},
+    )
+    [warning] = amplification_warnings(t)
+    assert "gateway-orders" in warning
+    assert "1.0" in warning and "1.5" in warning
+
+
+def test_backoff_can_cause_the_warning() -> None:
+    ok = chain(go={"timeout_s": 2.0}, oi={"timeout_s": 0.5, "max_retries": 2, "backoff_s": 0.1})
+    bad = chain(go={"timeout_s": 2.0}, oi={"timeout_s": 0.5, "max_retries": 2, "backoff_s": 0.3})
+    assert amplification_warnings(ok) == []  # 1.8 s < 2.0 s
+    assert len(amplification_warnings(bad)) == 1  # 1.5 + 0.3 + 0.6 = 2.4 s > 2.0 s
+
+
+def test_the_warning_names_the_called_service() -> None:
+    t = Topology.model_validate(
+        {
+            "version": 1,
+            "services": [{"name": "a", "port": 8080}, {"name": "b"}, {"name": "c"}],
+            "links": [
+                {"from": "a", "to": "b", "timeout_s": 0.5},
+                {"from": "b", "to": "c", "timeout_s": 0.4, "max_retries": 1},
+            ],
+        }
+    )
+    assert amplification_warnings(t) == [
+        "a-b times out after 0.5 s, but b may take 0.8 s to answer"
     ]

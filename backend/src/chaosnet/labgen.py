@@ -20,6 +20,38 @@ def proxy_port(topology: Topology, link: Link) -> int:
     return FIRST_PROXY_PORT + topology.links.index(link)
 
 
+def answer_time_s(topology: Topology, service: str) -> float:
+    """The longest `service` can take to answer: its slowest outgoing link, counting every
+    attempt's timeout and the longest backoff waits between them. 0 for a leaf (#119)."""
+    outgoing: list[Link] = []
+    for link in topology.links:
+        if link.from_ == service:
+            outgoing.append(link)
+    res = 0
+    for link in outgoing:
+        waits = sum(link.backoff_s * 2**i for i in range(link.max_retries))
+        res = max(res, (link.max_retries + 1) * link.timeout_s + waits)
+    return res
+
+
+def amplification_warnings(topology: Topology) -> list[str]:
+    """One warning per link whose timeout ends before the called service may answer.
+
+    The caller would then retry while the callee is still working, which multiplies the
+    load on it (EXP-004, configuration B). A warning, not an error: a lab must be able to
+    run a bad configuration on purpose.
+    """
+    res: list[str] = []
+    for link in topology.links:
+        time = answer_time_s(topology, link.to)
+        if time >= link.timeout_s:
+            res.append(
+                f"{link.name} times out after {link.timeout_s} s, "
+                f"but {link.to} may take {time} s to answer"
+            )
+    return res
+
+
 def toxiproxy_config(topology: Topology) -> list[dict[str, Any]]:
     """One proxy per link, each on its own port: the content of toxiproxy.json."""
     res: list[dict[str, Any]] = []
@@ -50,6 +82,7 @@ def service_config(topology: Topology, service: str) -> dict[str, Any]:
                 "url": f"http://toxiproxy:{proxy_port(topology, link)}",
                 "timeout_s": link.timeout_s,
                 "max_retries": link.max_retries,
+                "backoff_s": link.backoff_s,
             }
         )
     depends_on: dict[str, Any] = {}
@@ -187,4 +220,7 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=lab, help="directory to write to")
     args = parser.parse_args()
     write_lab(args.topology, args.out)
+    topology = Topology.model_validate_json(args.topology.read_text())
+    for warning in amplification_warnings(topology):
+        print(f"warning: {warning}")
     print(f"wrote compose.yaml, toxiproxy.json and prometheus.yml to {args.out}")
