@@ -24,7 +24,7 @@ SPEC: dict[str, Any] = {
     "phases_s": {"baseline": 0.02, "inject": 0.05, "recover": 0.02},
     "hypothesis": {"max_p95_ms": 500, "max_error_rate": 0.01},
 }
-SLOW = {**SPEC, "phases_s": {"baseline": 0.01, "inject": 5, "recover": 0.01}}
+SLOW = {**SPEC, "phases_s": {"baseline": 0.02, "inject": 5, "recover": 0.02}}
 
 Test = Callable[[httpx.AsyncClient, Lab], Awaitable[None]]
 
