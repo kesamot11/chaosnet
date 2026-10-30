@@ -349,3 +349,48 @@ at once. orders → inventory 2 retries, run without backoff and with `backoff_s
 of two uniform waits, on average 0.15 + 0.3 = 0.45 s. A request sent at a random moment
 of the 1 s outage survives when its last attempt falls after the end, which happens
 for about 45 % of them, so **~11 of 20 fail** with backoff.
+
+**Setup:** lab at `28f4f5c` (backoff, #119). Part 1: gateway → orders set to 1.0 s and
+0 retries by Tomáš, generated, restarted. Part 2: today's `topology.json`, and the same
+with `"backoff_s": 0.3` on orders → inventory.
+
+**Method:** part 1 with `experiments/exp004.py` (as EXP-004), 2 runs at 20:52 UTC. Part 2
+with `experiments/exp005.py`: the load generator at 20 req/s for 6 s, the
+`orders-inventory` proxy disabled for 1 s in the middle through the Toxiproxy API.
+Without backoff 6 runs (20:54, 20:59), with backoff 8 runs (20:57, 20:58); the first 3
+and 5 runs printed failures only, the later ones latency as well.
+
+**Results, part 1** (per 10 requests, inventory paused):
+
+| | EXP-004 B (the storm) | predicted | **measured** (2 runs) |
+|---|---|---|---|
+| attempts orders → inventory | 60 (×6) | 30 (×3) | **30, ×3** (29 `timeout`, 1 `ok` after unpausing) |
+| attempts gateway → orders | 20 | | **10** |
+| user latency, median | 2.011 s | 1.0 s | **1.008 s, 1.010 s** |
+| answer | 504 `gateway->orders` | `gateway->orders` | **504 `gateway->orders`** |
+
+**Results, part 2** (120 requests, 20 of them during the 1 s outage):
+
+| | predicted failures | **failures** | p95 in the two outage seconds | p95 of the run |
+|---|---|---|---|---|
+| no backoff | ~20 | **20** in all 6 runs; 60 refused attempts each | 11.5 – 13.9 ms | 12.7 – 13.1 ms |
+| backoff 0.3 s | Tomáš ~8, Claude ~11 | **10, 9, 13, 12, 11, 11, 12, 10**, median **11** | 510 – 722 ms | 487 – 602 ms |
+
+**Predictions:** part 1 correct in every point. Part 2: 20 without backoff correct; with
+backoff 11 measured against Tomáš's 8 and Claude's 11.
+
+**Findings:**
+
+- **Retry on one layer cuts the storm from ×6 to ×3 and answers sooner (1.0 s instead
+  of 2.0 s), but hides the cause:** the user sees `gateway->orders`, not inventory, and
+  orders still spends three attempts on a request nobody waits for.
+- **Backoff with jitter halves the failures of a short outage, and costs latency:**
+  requests that wait it out take up to ~0.7 s instead of ~12 ms. Without backoff a
+  refused connection fails in milliseconds, so the outage is fast but every request in
+  it is lost. Which is better depends on the user: a fast error, or a slow success.
+- **Backoff did nothing for the attempts:** about 47–52 refused attempts with backoff
+  against 60 without, only because the requests that waited succeeded on their second
+  or third attempt. Against a permanent hang (EXP-004) backoff only adds the waits.
+- With `backoff_s: 0.3` orders may take 1.5 + 0.3 + 0.6 = 2.4 s, past the gateway's
+  2.0 s, so the generator warns; it did not matter here because refused connections fail
+  at once, but in a hang it would turn A into B (EXP-004).
