@@ -252,3 +252,28 @@ decided in EXP-001 for effects below ~50 ms).
 a sub-millisecond one. No fault in checks 2–5, so the inject-phase p95 difference
 (306.4 vs 310.6) is attributed to the same drift by analogy, not by its own
 interleaved test.
+
+## EXP-004: retry amplification (#117, #118)
+
+**Question:** inventory hangs, so every call to it times out. How many requests reach
+inventory for one request at the gateway, and how long does the user wait? Two
+configurations of the gateway → orders link:
+
+| | gateway → orders | orders → inventory | orders' budget |
+|---|---|---|---|
+| **A** (today's `topology.json`) | 2.0 s timeout, 1 retry | 0.5 s timeout, 2 retries | 3 × 0.5 = 1.5 s |
+| **B** | **1.0 s** timeout, 1 retry | 0.5 s timeout, 2 retries | 1.5 s |
+
+**Prediction (Tomáš, 2026-10-30, before any measurement, translated from Czech):**
+
+- **A: 3 requests reach inventory, the user waits 1.5 s.** Orders gives up after its
+  three attempts and answers 504 within the gateway's 2.0 s. An HTTP answer is never
+  retried (`call_downstream` retries only connection failures and timeouts), so the
+  gateway passes it on. *How this prediction came about:* the first answer was 6
+  requests and 4 s (2 gateway attempts × 2.0 s); corrected after going back to the
+  rule that an HTTP response is not retried.
+- **B: 6 requests reach inventory, the user waits 2 s.** The gateway times out after
+  1.0 s, before orders has finished, and tries again; orders does not know the gateway
+  gave up and finishes its first three attempts as well. 2 attempts × 1.0 s.
+- Claude's addition to check: in B the error names `gateway->orders`, hiding that
+  inventory is the cause.
