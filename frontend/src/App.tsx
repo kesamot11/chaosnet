@@ -15,13 +15,13 @@ export function App() {
   const { experiment, unreachable } = useExperiment(experimentId);
 
   useEffect(() => {
-    const controller = new AbortController();
-    fetchTopology(controller.signal)
+    const request = new AbortController();
+    fetchTopology(request.signal)
       .then(setTopology)
       .catch((e: unknown) => {
-        if (!controller.signal.aborted) setError(e instanceof Error ? e.message : String(e));
+        if (!request.signal.aborted) setError(e instanceof Error ? e.message : String(e));
       });
-    return () => controller.abort(); // the component went away: stop the request
+    return () => request.abort(); // the component went away: stop the request
   }, []);
 
   return (

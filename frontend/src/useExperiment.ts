@@ -19,18 +19,18 @@ export function useExperiment(id: number | null) {
     setExperiment(null);
     setUnreachable(false);
     if (id === null) return;
-    const controller = new AbortController();
+    const polling = new AbortController(); // cancels this polling, not the experiment
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     async function poll(id: number) {
       let wait = POLL_MS;
       try {
-        const exp = await fetchExperiment(id, controller.signal);
+        const exp = await fetchExperiment(id, polling.signal);
         setExperiment(exp);
         setUnreachable(false);
         if (END_STATES.has(exp.state)) return;
       } catch {
-        if (controller.signal.aborted) return; // stopped on purpose, not a lost controller
+        if (polling.signal.aborted) return; // stopped on purpose, not a lost controller
         setUnreachable(true);
         wait = RETRY_MS;
       }
@@ -39,7 +39,7 @@ export function useExperiment(id: number | null) {
 
     poll(id);
     return () => {
-      controller.abort(); // also cancels a request still on its way
+      polling.abort(); // also cancels a request still on its way
       clearTimeout(timer);
     };
   }, [id]);
