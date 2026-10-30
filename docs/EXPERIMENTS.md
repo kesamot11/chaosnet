@@ -277,3 +277,44 @@ configurations of the gateway → orders link:
   gave up and finishes its first three attempts as well. 2 attempts × 1.0 s.
 - Claude's addition to check: in B the error names `gateway->orders`, hiding that
   inventory is the cause.
+
+**Setup:** lab at `0173d7c` (Prometheus counters, #116), configuration A from
+`lab/topology.json`, B by changing the gateway → orders `timeout_s` to 1.0, generating
+the lab and restarting it (Tomáš). Inventory paused with `docker compose pause` for the
+whole run, unpaused at the end.
+
+**Method:** `experiments/exp004.py`: counters from Prometheus before and after (2.5 s
+wait for a scrape each time, 5 s after unpausing so orders finishes its attempts),
+10 requests to the gateway one after another, latency from the Mac. A once (2026-10-30
+16:06 UTC), B twice (16:11, 16:11); both B runs gave identical counts.
+
+**Results:**
+
+| per 10 requests at the gateway | A predicted | **A measured** | B predicted | **B measured** (2 runs) |
+|---|---|---|---|---|
+| attempts gateway → orders | | **10** (`http_error`: the 504 from orders) | | **20** (`timeout`) |
+| attempts orders → inventory | 30 | **30** (`timeout`) | 60 | **60** (59 `timeout`, 1 `ok`) |
+| amplification at inventory | ×3 | **×3** | ×6 | **×6** |
+| user latency, median [min – max] | 1.5 s | **1.523** [1.509 – 1.533] | 2 s | **2.011** [2.005 – 2.015], **2.016** [2.007 – 2.019] |
+| answer | | 504, `failed_hop: orders->inventory` | | 504, `failed_hop: gateway->orders` |
+
+**Predictions:** all correct (A after the correction recorded in the prediction).
+
+**Findings:**
+
+- **A shorter outer timeout doubled the load on the struggling service and made the
+  user wait longer.** Cutting the gateway's timeout from 2.0 to 1.0 s, below orders'
+  budget of 1.5 s, made the gateway retry while orders was still working: 60 attempts
+  at inventory instead of 30, and 2.0 s instead of 1.5 s for the user. The rule from
+  Sprint 2 (an outer timeout must exceed the inner budget) is what keeps A at ×3.
+- **The error hides the cause in B:** `gateway->orders`, although inventory is the one
+  that hangs.
+- **Abandoned requests are still processed.** Inventory, paused for the whole run,
+  counted 30 (A) and 60 (B) requests: they waited in the connection queue and were
+  handled after unpausing, long after every caller had given up. A timeout at the
+  caller does not cancel the work at the callee, so a recovering service first gets a
+  burst of work nobody waits for. The one `ok` attempt in B is orders' last attempt,
+  made after unpausing. (Not predicted; the usual remedy is passing a deadline along.)
+- Side note: Prometheus renames the service's own `service` label to `exported_service`,
+  because the scrape target has a `service` label too. Same values; queries use the
+  target's.
