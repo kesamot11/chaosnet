@@ -318,3 +318,34 @@ wait for a scrape each time, 5 s after unpausing so orders finishes its attempts
 - Side note: Prometheus renames the service's own `service` label to `exported_service`,
   because the scrape target has a `service` label too. Same values; queries use the
   target's.
+
+## EXP-005: mitigations, retry on one layer and backoff with jitter (#120)
+
+**Question:** how much do the two mitigations planned in ADR-007 help, and what do they
+cost?
+
+**Part 1, retry on one layer only.** EXP-004's configuration B (the storm, ×6), with
+the gateway's retries turned off: gateway → orders 1.0 s timeout, **0 retries**;
+orders → inventory 0.5 s, 2 retries. Inventory paused, 10 requests one after another.
+
+**Part 2, backoff with jitter.** A *short* outage, where backoff can help (with a
+permanent hang every attempt fails anyway, only later): 20 req/s for 6 s, and the
+`orders-inventory` proxy disabled for 1 s in the middle, so every connection is refused
+at once. orders → inventory 2 retries, run without backoff and with `backoff_s: 0.3`
+(waits up to 0.3 s, then up to 0.6 s). Counted: requests that fail.
+
+**Prediction (Tomáš, 2026-10-30, before any measurement, translated from Czech):**
+
+- **Part 1: 3 attempts at inventory per request, the user waits 1.0 s, and the error
+  names `gateway->orders`,** so the user loses the real cause; orders still makes its
+  three attempts for a request nobody waits for.
+- **Part 2: without backoff all ~20 requests sent during the outage fail; with backoff
+  about 8.** *How this came about:* the first answer was 0 with backoff; after drawing
+  the timeline of a request sent at the start of the outage (its last attempt comes at
+  most 0.9 s later, before the outage ends) revised to 8: requests from the end of the
+  outage wait it out, those from the start cannot.
+
+**Claude's estimate, separate:** the last attempt comes `W` after the first, `W` the sum
+of two uniform waits, on average 0.15 + 0.3 = 0.45 s. A request sent at a random moment
+of the 1 s outage survives when its last attempt falls after the end, which happens
+for about 45 % of them, so **~11 of 20 fail** with backoff.
