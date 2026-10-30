@@ -56,6 +56,7 @@ def branch(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         "ENTRY_PORT": PORT,
         "TOXIPROXY_PORT": TOXIPROXY_PORT,
         "WATCHDOG_PORT": WATCHDOG_PORT,
+        "PROMETHEUS_PORT": "29090",
         "LEASE_TIMEOUT_S": "600",  # no controller sends heartbeats here; keep the toxics
     }
     # the image is the one the default lab builds; build it if this test runs alone

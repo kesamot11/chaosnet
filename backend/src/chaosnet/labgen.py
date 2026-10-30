@@ -88,7 +88,7 @@ SERVICE_BASE: dict[str, Any] = {
 }
 
 # The control plane of the lab, the same for every topology.
-CONTROL = ("toxiproxy", "watchdog")
+CONTROL = ("toxiproxy", "watchdog", "prometheus")
 
 HEADER = """\
 # Generated from topology.json by `uv run chaosnet-lab` (in backend/), see #73.
@@ -135,10 +135,38 @@ def compose_config(topology: Topology) -> dict[str, Any]:
             },
             "depends_on": {"toxiproxy": {"condition": "service_healthy"}},
         },
+        # Counts requests per service and attempts per hop (#116); the only way to read
+        # the services' /metrics, whose ports are never published.
+        "prometheus": {
+            "image": "prom/prometheus:v3.15.1",
+            "command": ["--config.file=/etc/prometheus/prometheus.yml"],
+            "volumes": ["./prometheus.yml:/etc/prometheus/prometheus.yml:ro"],
+            "ports": ["127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"],
+            "healthcheck": {
+                **SERVICE_BASE["healthcheck"],
+                "test": ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/ready"],
+            },
+        },
     }
     for service in topology.services:
         services[service.name] = {**SERVICE_BASE, **service_config(topology, service.name)}
     return {"name": "chaosnet-lab", "services": services}
+
+
+def prometheus_config(topology: Topology) -> dict[str, Any]:
+    """prometheus.yml: scrape every lab service each second, labelled by its name."""
+    return {
+        "global": {"scrape_interval": "1s"},
+        "scrape_configs": [
+            {
+                "job_name": "lab",
+                "static_configs": [
+                    {"targets": [f"{s.name}:{SERVICE_PORT}"], "labels": {"service": s.name}}
+                    for s in topology.services
+                ],
+            }
+        ],
+    }
 
 
 def write_lab(topology_file: Path, out: Path) -> None:
@@ -147,6 +175,8 @@ def write_lab(topology_file: Path, out: Path) -> None:
     compose = HEADER + json.dumps(compose_config(topology), indent=2) + "\n"
     (out / "compose.yaml").write_text(compose)
     (out / "toxiproxy.json").write_text(json.dumps(toxiproxy_config(topology), indent=2) + "\n")
+    prometheus = HEADER + json.dumps(prometheus_config(topology), indent=2) + "\n"
+    (out / "prometheus.yml").write_text(prometheus)
 
 
 def main() -> None:
@@ -157,4 +187,4 @@ def main() -> None:
     parser.add_argument("--out", type=Path, default=lab, help="directory to write to")
     args = parser.parse_args()
     write_lab(args.topology, args.out)
-    print(f"wrote {args.out / 'compose.yaml'} and {args.out / 'toxiproxy.json'}")
+    print(f"wrote compose.yaml, toxiproxy.json and prometheus.yml to {args.out}")

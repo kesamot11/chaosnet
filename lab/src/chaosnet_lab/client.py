@@ -3,6 +3,10 @@
 from typing import Any
 
 import httpx
+from prometheus_client import Counter
+
+# Counted by the caller, so attempts to a service that hangs are counted too (#116).
+ATTEMPTS = Counter("lab_attempts", "Attempts to call another service", ["hop", "outcome"])
 
 
 class DownstreamError(Exception):
@@ -45,16 +49,21 @@ async def call_downstream(
     for _ in range(max_retries + 1):
         try:
             res = await client.request(method, url, json=json, timeout=timeout_s)
+            ATTEMPTS.labels(hop, "http_error" if res.is_error else "ok").inc()
             return res
         except httpx.ConnectError:
+            ATTEMPTS.labels(hop, "connection_error").inc()
             code = 503
         except httpx.ReadError, httpx.RemoteProtocolError:
+            ATTEMPTS.labels(hop, "connection_error").inc()
             code = 503
             if method != "GET":
                 break
         except httpx.ConnectTimeout:
+            ATTEMPTS.labels(hop, "timeout").inc()
             code = 504
         except httpx.TimeoutException:
+            ATTEMPTS.labels(hop, "timeout").inc()
             code = 504
             if method != "GET":
                 break

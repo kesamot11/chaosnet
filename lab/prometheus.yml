@@ -1,0 +1,38 @@
+# Generated from topology.json by `uv run chaosnet-lab` (in backend/), see #73.
+# Do not edit: change topology.json and generate again. Valid YAML, written as JSON.
+{
+  "global": {
+    "scrape_interval": "1s"
+  },
+  "scrape_configs": [
+    {
+      "job_name": "lab",
+      "static_configs": [
+        {
+          "targets": [
+            "gateway:8000"
+          ],
+          "labels": {
+            "service": "gateway"
+          }
+        },
+        {
+          "targets": [
+            "orders:8000"
+          ],
+          "labels": {
+            "service": "orders"
+          }
+        },
+        {
+          "targets": [
+            "inventory:8000"
+          ],
+          "labels": {
+            "service": "inventory"
+          }
+        }
+      ]
+    }
+  ]
+}

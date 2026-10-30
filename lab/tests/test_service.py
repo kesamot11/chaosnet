@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 import pytest
+from prometheus_client import REGISTRY
 
 from chaosnet_lab.service import Hop, app
 
@@ -121,3 +122,20 @@ def test_valid_call_config() -> None:
 def test_invalid_call_config_fails_at_startup(key: str, value: object) -> None:
     with pytest.raises(ValueError, match=key):
         Hop.parse({**VALID, key: value})
+
+
+def test_every_request_is_counted_and_shown_at_metrics() -> None:
+    def requests() -> float:
+        return REGISTRY.get_sample_value("lab_requests_total", {"service": "counted"}) or 0
+
+    before = requests()
+    ask("counted", [], answers_as_leaf)
+    ask("counted", [], answers_as_leaf)
+    assert requests() - before == 2
+
+    async def scrape() -> str:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://svc") as c:
+            return (await c.get("/metrics")).text
+
+    assert 'lab_requests_total{service="counted"}' in asyncio.run(scrape())
