@@ -432,3 +432,46 @@ axes in one chart are hard to read.
 - `compose.yaml` is generated as JSON with a YAML comment header (JSON is valid YAML), so
   no YAML library; a test fails when it drifts from `topology.json`.
 - A topology service may not be called `toxiproxy` or `watchdog`.
+
+---
+
+## ADR-007: Retry amplification first, measured with Prometheus
+
+- **Status:** Accepted
+- **Date:** 2026-10-30 (Sprint 5 planning)
+- **Issues:** #115–#122, epic #7 (M6)
+- **Decided by:** Tomáš; reasons below are his, recorded from the discussion
+
+### Context
+
+With timeouts and retries on every hop, a slow service can receive many times the
+requests its callers received: gateway→orders allows 2 attempts, orders→inventory 3, so
+one user request can become 6 at inventory exactly when it is struggling (retry
+amplification). To show it, the experiment must count the requests that reach each
+service, but only the entry and the control APIs are reachable from the Mac.
+
+### Decisions
+
+**1. M6 (resilience) before M5 (observability).** *Reason:* it builds on what exists
+(retries, faults, the controller), needs little new infrastructure, answers the open
+question from EXP-002, and completes v0.2.0. M5 follows.
+
+**2. Prometheus counts the requests**, as a container in the generated lab that scrapes
+every service's `/metrics` inside the lab network; only Prometheus is published, on
+`127.0.0.1`. New infrastructure, approved by Tomáš. *Reason:* the standard tool for
+this, so the skill is real, and half of M5 (metrics) is done with it.
+
+**3. Mitigations now: retry on one layer only, and backoff with jitter.** Retry budget
+and circuit breaker in Sprint 6, together, as both keep state. *Reason:* Sprint 4's 31
+points brought understanding down to 2.5/5; 24 points this time.
+
+**4. Storing the counts with the results (#121, #122) is optional**, decided after
+EXP-004. *Reason (Tomáš):* querying Prometheus by hand may be enough.
+
+### Alternatives rejected
+
+| Decision | Rejected | Why |
+|---|---|---|
+| 2 | an own `/stats` per service | would need the services' ports published or a collector written by hand |
+| 2 | counting at the entry only | shows latency, not how many attempts reached inventory |
+| 3 | all four mitigations now | too much for one sprint |
