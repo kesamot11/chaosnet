@@ -5,7 +5,7 @@ import httpx
 import pytest
 from prometheus_client import REGISTRY
 
-from chaosnet_lab.client import DownstreamError, call_downstream
+from chaosnet_lab.client import DownstreamError, call_downstream, retry_wait
 
 URL = "http://inventory:8000/items/42"
 HOP = "orders->inventory"
@@ -216,3 +216,30 @@ def test_a_hanging_service_is_counted_once_per_attempt() -> None:
     with pytest.raises(DownstreamError):
         call()
     assert attempts("timeout") - before == 3
+
+
+# --- retry_wait (#119) -------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("attempt", "backoff_s", "rand", "wait"),
+    [
+        (0, 0.1, 0.5, 0.05),
+        (1, 0.1, 0.5, 0.1),
+        (2, 0.1, 1.0, 0.4),
+        (3, 0.25, 1.0, 2.0),
+    ],
+)
+def test_the_wait_doubles_with_every_attempt(
+    attempt: int, backoff_s: float, rand: float, wait: float
+) -> None:
+    assert retry_wait(attempt, backoff_s, rand) == pytest.approx(wait)
+
+
+def test_without_backoff_there_is_no_wait() -> None:
+    assert retry_wait(5, 0.0, 0.7) == 0
+
+
+def test_jitter_spreads_the_wait_from_zero_to_the_full_backoff() -> None:
+    assert retry_wait(1, 0.1, 0.0) == 0
+    assert retry_wait(1, 0.1, 1.0) == pytest.approx(0.2)

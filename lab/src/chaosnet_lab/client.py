@@ -9,6 +9,16 @@ from prometheus_client import Counter
 ATTEMPTS = Counter("lab_attempts", "Attempts to call another service", ["hop", "outcome"])
 
 
+def retry_wait(attempt: int, backoff_s: float, rand: float) -> float:
+    """Seconds to wait after failed attempt number `attempt` (from 0), before the next one.
+
+    Exponential backoff with full jitter (#119): up to backoff_s × 2^attempt, scaled by
+    `rand` (0.0–1.0, random.random() in real calls), so callers that failed together do
+    not all retry at the same moment. backoff_s 0 means retry at once, as before.
+    """
+    raise NotImplementedError("Tomáš, #119")
+
+
 class DownstreamError(Exception):
     """A downstream service could not be reached after all attempts."""
 
