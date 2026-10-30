@@ -88,6 +88,12 @@ class FaultSpec(BaseModel):
             raise ValueError("a latency fault needs ms")
         if self.kind == "bandwidth" and self.kbps is None:
             raise ValueError("a bandwidth fault needs kbps")
+        if self.kind == "latency" and self.kbps is not None:
+            raise ValueError("a latency can't have kbps")
+        if self.kind == "bandwidth" and self.ms is not None:
+            raise ValueError("a bandwidth can't have ms")
+        if self.kind == "reset_peer" and (self.ms is not None or self.kbps is not None):
+            raise ValueError("a reset_peer can't have ms nor kbps")
         return self
 
 
