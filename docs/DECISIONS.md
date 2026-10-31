@@ -475,3 +475,46 @@ EXP-004. *Reason (Tomáš):* querying Prometheus by hand may be enough.
 | 2 | an own `/stats` per service | would need the services' ports published or a collector written by hand |
 | 2 | counting at the entry only | shows latency, not how many attempts reached inventory |
 | 3 | all four mitigations now | too much for one sprint |
+
+---
+
+## ADR-008: A circuit breaker per link, and a retry budget
+
+- **Status:** Accepted
+- **Date:** 2026-10-31 (Sprint 6 planning)
+- **Issues:** #134–#139, epic #7 (M6)
+- **Decided by:** Tomáš; reasons below are his, recorded from the discussion
+
+### Context
+
+EXP-004 and EXP-005: a hanging service gets ×3 to ×6 the requests while it struggles,
+every user waits for the timeouts, and retry on one layer or backoff only soften it.
+Sprint 6 adds the two mechanisms that keep state: a circuit breaker (stop calling a
+service that keeps failing) and a retry budget (cap the share of retries).
+
+### Decisions
+
+**1. The breaker opens at more than 50 % failures in the last 10 s, counted only when
+the window holds at least 10 requests.** *Reason (Tomáš):* a count of failures in a row
+misses a pattern like "1 good, 2 bad" repeated, which fails 66 %. The minimum stops a
+single failure in a quiet window (100 %) from opening the breaker and refusing a whole
+morning of healthy traffic: a false alarm is an outage too.
+
+**2. One breaker per link, at the caller**, like the attempt counter (#116).
+
+**3. Open: no call, no retry, an answer at once:** `503 {"error": "circuit_open",
+"failed_hop": "orders->inventory"}`. *Reason (Tomáš):* the error names the cause,
+unlike retry on one layer, which hid it (EXP-005).
+
+**4. After a 5 s cooldown, half-open: one trial call.** It succeeds: closed; it fails:
+open again.
+
+**5. Both off by default** and set per link in `topology.json`, like `backoff_s`.
+
+### Alternatives rejected
+
+| Decision | Rejected | Why |
+|---|---|---|
+| 1 | N failures in a row | misses alternating failures |
+| 1 | a rate without a minimum | one failure at night opens the breaker |
+| 3 | waiting for the timeout anyway | the user waits for an answer already known |
