@@ -431,3 +431,42 @@ Multiple-choice quiz: **10/10**. Own-words questions:
   network, not the application.
 
 Revisit stale state (who writes what, and when) in the Sprint 5 check.
+
+---
+
+## 2026-10-31: Sprint 5, retry amplification
+
+- **Only connection failures and timeouts are retried, never an HTTP answer.** A 504
+  from orders is an answer ("I tried, it failed"), so the gateway passes it on.
+- **An outer timeout must exceed the inner budget** (attempts × timeout + backoff
+  waits). Shorter, the outer layer retries while the inner one still works: two chains
+  of 3 attempts = ×6 at the bottom, and the user waits longer (EXP-004 B).
+- **Count at the caller**: a paused service counts nothing.
+- **A timeout does not cancel the work**: a paused service processes every abandoned
+  request after it resumes (zombie requests). Remedy: pass a deadline along.
+- **Backoff makes the wait longer** (×2 each time) so a service has time to recover;
+  **jitter makes it random** so that callers who failed together do not retry together
+  (thundering herd). Jitter does not lengthen the wait.
+- **No mitigation is free**: retry on one layer hides the cause; backoff turns fast
+  errors into slow successes; backoff lengthens the inner budget and can break the rule
+  above.
+
+---
+
+## 2026-10-31: Sprint 5 interview check
+
+Quiz **10/10** (question 2 did not state orders' retries; counted as correct).
+Own-words questions:
+
+- *Backoff with jitter in one sentence?* With a sentence to fill in: backoff lengthens
+  the wait so the service can recover (right); first said jitter lengthens it too.
+  **Weak spot:** jitter randomizes the wait so retries spread out.
+- *Controller crash during inject, restart after 60 s?* **Right this time**: the
+  database keeps the old state until the restart, reconcile writes `aborted`.
+  Still said the watchdog "notices the controller crashed": it only notices that
+  heartbeats stopped (the lease expired), and removes the faults ~5 s later.
+- *Why did a shorter gateway timeout double the load?* First mixed EXP-004 B (1.0 s,
+  1 retry: ×6, 2.0 s) with EXP-005 part 1 (1.0 s, 0 retries: ×3, hidden cause). Then
+  right: the gateway retries at 1.0 s while orders still runs its first chain.
+
+Revisit jitter vs backoff in the Sprint 6 check.
