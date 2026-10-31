@@ -37,8 +37,33 @@ class Breaker:
 
     def allow(self) -> bool:
         """May the caller make a call now? In half-open, True once, for the trial."""
-        raise NotImplementedError("Tomáš, #135, step 2")
+        if self.state == "closed":
+            return True
+        if self.state == "open" and self.now() - self.opened_at >= self.cooldown_s:
+            self.state = "half_open"
+            self.trial_in_flight = True
+            return True
+        if self.state == "half_open" and not self.trial_in_flight:
+            self.trial_in_flight = True
+            return True
+        return False
 
     def record(self, ok: bool) -> None:
         """How the call allowed by allow() ended."""
-        raise NotImplementedError("Tomáš, #135, step 3")
+        if self.state == "half_open":
+            self.trial_in_flight = False
+            if ok:
+                self.state = "closed"
+                self.calls = []
+            else:
+                self.state = "open"
+                self.opened_at = self.now()
+            return
+        time_now = self.now() - self.window_s
+        self.calls = [c for c in self.calls if c[0] > time_now]
+        self.calls.append((self.now(), ok))
+        err = len([c for c in self.calls if not c[1]])
+        err = float(err) / len(self.calls)
+        if len(self.calls) >= self.min_calls and err > self.failure_rate:
+            self.state = "open"
+            self.opened_at = self.now()
