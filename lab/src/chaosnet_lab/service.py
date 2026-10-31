@@ -17,7 +17,7 @@ import json
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -25,7 +25,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
 
-from chaosnet_lab.client import DownstreamError, call_downstream
+from chaosnet_lab.breaker import Breaker
+from chaosnet_lab.client import ATTEMPTS, DownstreamError, call_downstream
 
 # Counted by the service itself; a service that hangs counts nothing (#116, see client.py).
 REQUESTS = Counter("lab_requests", "Requests this service received", ["service"])
@@ -38,6 +39,7 @@ class Hop:
     timeout_s: float  # per attempt
     max_retries: int
     backoff_s: float = 0.0  # see client.retry_wait
+    breaker: Breaker | None = field(default=None, compare=False)  # one per link (ADR-008)
 
     @classmethod
     def parse(cls, raw: dict[str, Any]) -> Hop:
@@ -55,7 +57,8 @@ class Hop:
         backoff_s = float(raw.get("backoff_s", 0.0))
         if backoff_s < 0:
             raise ValueError(f"backoff_s must be >= 0, got {backoff_s}")
-        return cls(str(raw["hop"]), url, timeout_s, max_retries, backoff_s)
+        breaker = Breaker() if raw.get("breaker", False) else None
+        return cls(str(raw["hop"]), url, timeout_s, max_retries, backoff_s, breaker)
 
 
 def calls_from_env() -> list[Hop]:
@@ -101,7 +104,29 @@ async def handle(request: Request) -> Response:
 
 
 async def call(client: httpx.AsyncClient, hop: Hop) -> dict[str, Any] | Response:
-    """The callee's answer, or the response this service gives when the callee failed."""
+    """The callee's answer, or the response this service gives when the callee failed.
+
+    With a breaker on the link (ADR-008), an open breaker answers at once, without a
+    call or a retry; every call it lets through is reported to it as one outcome, after
+    all its attempts.
+    """
+    if hop.breaker is None:
+        return await call_once(client, hop)
+    if not hop.breaker.allow():
+        ATTEMPTS.labels(hop.name, "rejected").inc()
+        return JSONResponse({"error": "circuit_open", "failed_hop": hop.name}, 503)
+    answer: dict[str, Any] | Response = Response(status_code=500)  # if call_once raises
+    try:
+        answer = await call_once(client, hop)
+    finally:
+        # A 5xx (a timeout, nobody answering, a failure further down) counts as a failure;
+        # recording it in `finally` keeps a half-open trial from being stuck on its way.
+        failed = isinstance(answer, Response) and answer.status_code >= 500
+        hop.breaker.record(not failed)
+    return answer
+
+
+async def call_once(client: httpx.AsyncClient, hop: Hop) -> dict[str, Any] | Response:
     try:
         res = await call_downstream(
             client,

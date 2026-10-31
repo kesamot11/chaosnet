@@ -55,6 +55,12 @@ cd backend && uv run chaosnet-lab
 
 Set `ENTRY_PORT` if 8080 is taken.
 
+A link can also have `"backoff_s"` (wait before a retry, doubled each time, with jitter)
+and `"breaker": true` (a circuit breaker at the caller: above 50 % failures in 10 s,
+with at least 10 calls, it answers `503 circuit_open` at once for 5 s, then lets one
+trial call through; ADR-008). The generator warns when a link times out before the
+service it calls may answer.
+
 Prometheus counts the requests every service received (`lab_requests_total`) and every
 attempt on every link, with its outcome (`lab_attempts_total`), counted by the caller so
 attempts to a hanging service are counted too. Query it at http://127.0.0.1:9090
