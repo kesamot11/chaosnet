@@ -394,3 +394,31 @@ backoff 11 measured against Tomáš's 8 and Claude's 11.
 - With `backoff_s: 0.3` orders may take 1.5 + 0.3 + 0.6 = 2.4 s, past the gateway's
   2.0 s, so the generator warns; it did not matter here because refused connections fail
   at once, but in a hang it would turn A into B (EXP-004).
+
+## EXP-006: a circuit breaker against a hanging service (#137)
+
+**Question:** with a breaker on orders → inventory (ADR-008), how soon does it open
+when inventory hangs, how many attempts still reach inventory, and what does the user
+see once it is open?
+
+**Setup:** today's topology with `"breaker": true` on orders → inventory (0.5 s
+timeout, 2 retries). Inventory paused; 20 req/s for 20 s.
+
+**Prediction (Tomáš, 2026-11-01, before any measurement, translated from Czech):**
+
+- **The breaker opens about 1.95 s after inventory hangs.** It learns of a call only
+  when the call ends, after all three attempts (1.5 s), and needs 10 calls in the
+  window: the 10th request was sent at 0.45 s and ends at 1.95 s. *How this came
+  about:* first "5 s, because of the 10 s window", then "0.5 s" (one attempt instead of
+  three), then 1.95 s after the timeline.
+- **About 129 attempts reach inventory in 20 s, against 1 200 without a breaker:** the
+  ~40 requests sent before it opens all finish their three attempts (120), plus one trial
+  call every ~5 s (at ~7, ~13.5 and ~20 s), each of three attempts (9). The breaker does
+  not stop calls already on their way, only new ones. *How this came about:* first 19
+  requests before it opens; corrected to 20 × 1.95 ≈ 40.
+- **Once open, the user gets `503 circuit_open` in a few milliseconds** instead of
+  waiting 1.5 s.
+
+Tomáš's observation while predicting: the breaker cannot prevent the first flood,
+because it needs evidence and the evidence takes as long as the failing calls. It
+prevents the long one.
