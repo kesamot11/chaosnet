@@ -9,6 +9,7 @@ import httpx
 import pytest
 from prometheus_client import REGISTRY
 
+from chaosnet_lab.breaker import Breaker
 from chaosnet_lab.service import Hop, app
 
 Handler = Callable[[httpx.Request], Coroutine[None, None, httpx.Response]]
@@ -139,3 +140,45 @@ def test_every_request_is_counted_and_shown_at_metrics() -> None:
             return (await c.get("/metrics")).text
 
     assert 'lab_requests_total{service="counted"}' in asyncio.run(scrape())
+
+
+# --- circuit breaker on a link (#136) ---------------------------------------------------
+
+
+def test_an_open_breaker_answers_at_once_without_calling() -> None:
+    called: list[str] = []
+
+    async def down(request: httpx.Request) -> httpx.Response:
+        called.append(str(request.url))
+        raise httpx.ConnectError("refused")
+
+    hop = Hop("orders->inventory", "http://inventory", 0.5, 0, breaker=Breaker())
+    for _ in range(10):  # 10 failed calls: more than 50 % with the minimum of 10
+        assert ask("orders", [hop], down).status_code == 503
+    assert len(called) == 10
+
+    def rejected() -> float:
+        labels = {"hop": "orders->inventory", "outcome": "rejected"}
+        return REGISTRY.get_sample_value("lab_attempts_total", labels) or 0
+
+    before = rejected()
+    res = ask("orders", [hop], down)
+    assert res.status_code == 503
+    assert res.json() == {"error": "circuit_open", "failed_hop": "orders->inventory"}
+    assert len(called) == 10  # inventory was not called
+    assert rejected() - before == 1
+
+
+def test_a_failure_further_down_counts_for_the_breaker() -> None:
+    async def failed_below(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(504, json={"error": "timeout", "failed_hop": "orders->inventory"})
+
+    hop = Hop("gateway->orders", "http://orders", 2.0, 0, breaker=Breaker())
+    for _ in range(10):
+        ask("gateway", [hop], failed_below)
+    assert ask("gateway", [hop], failed_below).json()["error"] == "circuit_open"
+
+
+def test_a_breaker_comes_from_the_config_and_is_off_by_default() -> None:
+    assert Hop.parse(VALID).breaker is None
+    assert isinstance(Hop.parse({**VALID, "breaker": True}).breaker, Breaker)
