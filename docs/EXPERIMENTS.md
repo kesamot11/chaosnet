@@ -422,3 +422,46 @@ timeout, 2 retries). Inventory paused; 20 req/s for 20 s.
 Tomáš's observation while predicting: the breaker cannot prevent the first flood,
 because it needs evidence and the evidence takes as long as the failing calls. It
 prevents the long one.
+
+**Setup:** lab at `f8fb729` (breaker in the service, #136), `"breaker": true` on
+orders → inventory set by Tomáš, generated, rebuilt.
+
+**Method:** `experiments/exp006.py`: make sure the breaker is closed (requests until one
+succeeds), counters from Prometheus, inventory paused, the load generator at 20 req/s
+for 20 s, inventory unpaused, counters again. 3 valid runs (2026-11-01 17:40 UTC).
+
+A first attempt at 17:38 had a mistake in the script: it waited 6 s after unpausing,
+but a breaker closes only through a trial call, and none came, so runs 2 and 3 started
+with the breaker still open (12 attempts each, all trials). Only run 1 of that attempt
+was valid, and it matched the three valid runs exactly. The script now closes the
+breaker before measuring.
+
+**Results** (400 requests in each run; all three runs identical):
+
+| | predicted | **measured** |
+|---|---|---|
+| breaker opens after | ~1.95 s | **in second 2**: p95 1 520 – 1 530 ms in seconds 0–1, then 10.3 – 12.7 ms |
+| attempts reaching inventory | ~129 (without breaker 1 200) | **126** `timeout`: 40 requests before it opened × 3, and 2 trials × 3 |
+| calls refused by the breaker | | **358** `rejected` (400 − 40 − 2) |
+| user latency once open | a few ms | **p95 ≈ 9 – 13 ms** per second |
+| answers | | 400 × 5xx: every request failed, as without a breaker |
+
+**Prediction:** correct. 126 instead of 129 because the third trial was due at ~20 s,
+when the load ended.
+
+**Findings:**
+
+- **The breaker cut the load on the hanging service from 1 200 attempts to 126 and the
+  user's wait from 1.5 s to ~10 ms, but it saved no request:** all 400 failed, as they
+  would have anyway. It makes failures fast and lets the service recover; it does not
+  make them succeed.
+- **The first ~2 s are not protected** (Tomáš's point while predicting): the breaker
+  needs evidence, and the evidence takes as long as the failing calls (1.5 s each), plus
+  the minimum of 10 calls. All 40 requests sent before it opened still made their three
+  attempts.
+- **A breaker closes only through traffic.** After inventory resumed, the breaker
+  stayed open until the next request, which became the trial. With no traffic it would
+  stay open indefinitely; the first user after a recovery always waits for the trial.
+- **At low traffic it may never open:** with one request at a time, each failing after
+  1.5 s, only about 7 calls fit in the 10 s window, below the minimum of 10 (found
+  while writing the integration test, #136).
