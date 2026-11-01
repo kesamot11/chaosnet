@@ -488,3 +488,43 @@ for 20 s, 400 requests. Without a budget: 400 × 6 = 2 400 attempts at inventory
   they fail at its 1.0 s timeout; the ~13 % that do get one wait 2.0 s, as in B, and 13 %
   is more than 5 %, so the p95 stays where it was. *How this came about:* first "the
   time of 10 requests"; then from one request in the middle of the storm.
+
+**Setup:** lab at `59c087f` (retry budget, #138). Configuration B and the budgets set
+in `lab/topology.json` by Tomáš, generated and restarted.
+
+**Method:** `experiments/exp007.py`: restart gateway and orders (budgets start full),
+counters from Prometheus, inventory paused, the load generator at 20 req/s for 20 s,
+inventory unpaused, counters again. B without a budget: 2 runs (2026-11-01 18:34 UTC);
+with budgets: 3 runs (18:37). The first run with budgets is discarded: the restart reset
+the services' counters, and the "before" snapshot still held the values of the earlier
+runs (negative differences). Runs 2 and 3 are below.
+
+**Results** (400 requests in each run, every one failed: inventory was paused):
+
+| | B, no budget (2 runs) | predicted with budget | **with budget** (runs 2, 3) |
+|---|---|---|---|
+| attempts at inventory | **2 400, 2 400** (×6) | ~506 | **500, 500** (×1.25) |
+| gateway → orders | 800 `timeout` | ~451 attempts | 51–52 `timeout`, 395–396 `http_error`; 4 retries refused |
+| orders → inventory | 2 400 `timeout` | | 500 `timeout`; 445–446 retries refused |
+| user latency, median | 2 011 ms | 1.0 s | **511 – 512 ms** |
+| user latency, p95 | 2 017 ms | 2.0 s | **1 514 – 1 515 ms** |
+
+**Prediction:** the load was right (500 against ~506); the latency was wrong, better
+than predicted.
+
+**Findings:**
+
+- **The retry budget cut the attempts at a hanging inventory from 2 400 to 500 (×6 →
+  ×1.25)** by itself, without a breaker. The first link: 400 requests + ~47 retries
+  reached orders; the second: ~447 first attempts + ~53 retries reached inventory.
+- **Why the latency beat the prediction:** once orders' bucket was empty, orders gave up
+  after one attempt (0.5 s) and *answered* the gateway with a 504 before the gateway's
+  1.0 s timeout. An answer is not retried, so the gateway retried only while orders
+  still had tokens (51–52 timeouts at the start). The budget on the inner link restored,
+  at run time, the rule from EXP-004 that the inner service must answer before the outer
+  timeout. The prediction assumed every gateway call would time out at 1.0 s.
+- **Cost:** a short outage loses the retries that would have bridged it, as soon as the
+  bucket is empty (compare EXP-005: backoff saved about half of the requests in a 1 s
+  outage). In calm times nothing changes: the bucket is full.
+- Method note: restarting a service resets its Prometheus counters; take the "before"
+  snapshot only after the new process has been scraped, or use `increase()`.
