@@ -465,3 +465,26 @@ when the load ended.
 - **At low traffic it may never open:** with one request at a time, each failing after
   1.5 s, only about 7 calls fit in the 10 s window, below the minimum of 10 (found
   while writing the integration test, #136).
+
+## EXP-007: a retry budget against the storm (#139)
+
+**Question:** EXP-004's configuration B multiplied the load on a hanging inventory ×6.
+With a retry budget (#138) of 0.1 on both links, how many attempts reach inventory, and
+how long does the user wait?
+
+**Setup:** configuration B (gateway → orders 1.0 s timeout, 1 retry; orders → inventory
+0.5 s, 2 retries) with `"retry_budget": 0.1` on both links. Inventory paused; 20 req/s
+for 20 s, 400 requests. Without a budget: 400 × 6 = 2 400 attempts at inventory.
+
+**Prediction (Tomáš, 2026-11-01, before any measurement, translated from Czech):**
+
+- **gateway → orders: ~51 retries**: the 10 tokens the bucket starts with, then 0.1 per
+  request (~40); so ~451 calls reach orders.
+- **orders → inventory: ~506 attempts** (×1.27 instead of ×6): 451 first attempts, and
+  the second link's own bucket: 10 + 451 × 0.1 ≈ 55 retries. *How this came about:*
+  first the first link only (51); then 456, counting the second bucket's start without
+  its earnings; corrected to ~506 after going through the second bucket.
+- **The user: median 1.0 s, p95 2.0 s.** Most requests get no retry at the gateway, so
+  they fail at its 1.0 s timeout; the ~13 % that do get one wait 2.0 s, as in B, and 13 %
+  is more than 5 %, so the p95 stays where it was. *How this came about:* first "the
+  time of 10 requests"; then from one request in the middle of the storm.
