@@ -32,6 +32,7 @@ class Link(BaseModel):
     max_retries: int = Field(default=0, ge=0)  # no retries unless asked: retries amplify load
     backoff_s: float = Field(default=0.0, ge=0)  # wait before a retry, doubled each time (#119)
     breaker: bool = False  # a circuit breaker on this link, at the caller (ADR-008)
+    retry_budget: float | None = Field(default=None, gt=0, le=1)  # token share per call (#138)
 
     @property
     def name(self) -> str:

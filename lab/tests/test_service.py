@@ -10,6 +10,7 @@ import pytest
 from prometheus_client import REGISTRY
 
 from chaosnet_lab.breaker import Breaker
+from chaosnet_lab.budget import RetryBudget
 from chaosnet_lab.service import Hop, app
 
 Handler = Callable[[httpx.Request], Coroutine[None, None, httpx.Response]]
@@ -182,3 +183,9 @@ def test_a_failure_further_down_counts_for_the_breaker() -> None:
 def test_a_breaker_comes_from_the_config_and_is_off_by_default() -> None:
     assert Hop.parse(VALID).breaker is None
     assert isinstance(Hop.parse({**VALID, "breaker": True}).breaker, Breaker)
+
+
+def test_a_retry_budget_comes_from_the_config_and_is_off_by_default() -> None:
+    assert Hop.parse(VALID).budget is None
+    budget = Hop.parse({**VALID, "retry_budget": 0.1}).budget
+    assert isinstance(budget, RetryBudget) and budget.ratio == 0.1

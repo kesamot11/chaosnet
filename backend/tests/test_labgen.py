@@ -77,6 +77,7 @@ def test_a_service_calls_through_the_proxy_of_its_link() -> None:
             "max_retries": 2,
             "backoff_s": 0.0,
             "breaker": False,
+            "retry_budget": None,
         }
     ]
     assert orders["depends_on"] == {
