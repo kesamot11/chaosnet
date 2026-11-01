@@ -26,6 +26,7 @@ from fastapi.responses import JSONResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
 
 from chaosnet_lab.breaker import Breaker
+from chaosnet_lab.budget import RetryBudget
 from chaosnet_lab.client import ATTEMPTS, DownstreamError, call_downstream
 
 # Counted by the service itself; a service that hangs counts nothing (#116, see client.py).
@@ -40,6 +41,7 @@ class Hop:
     max_retries: int
     backoff_s: float = 0.0  # see client.retry_wait
     breaker: Breaker | None = field(default=None, compare=False)  # one per link (ADR-008)
+    budget: RetryBudget | None = field(default=None, compare=False)  # one per link (#138)
 
     @classmethod
     def parse(cls, raw: dict[str, Any]) -> Hop:
@@ -58,7 +60,9 @@ class Hop:
         if backoff_s < 0:
             raise ValueError(f"backoff_s must be >= 0, got {backoff_s}")
         breaker = Breaker() if raw.get("breaker", False) else None
-        return cls(str(raw["hop"]), url, timeout_s, max_retries, backoff_s, breaker)
+        ratio = raw.get("retry_budget")
+        budget = RetryBudget(ratio=float(ratio)) if ratio is not None else None
+        return cls(str(raw["hop"]), url, timeout_s, max_retries, backoff_s, breaker, budget)
 
 
 def calls_from_env() -> list[Hop]:
@@ -136,6 +140,7 @@ async def call_once(client: httpx.AsyncClient, hop: Hop) -> dict[str, Any] | Res
             timeout_s=hop.timeout_s,
             max_retries=hop.max_retries,
             backoff_s=hop.backoff_s,
+            budget=hop.budget,
         )
     except DownstreamError as e:
         reason = "unavailable" if e.status_code == 503 else "timeout"

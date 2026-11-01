@@ -5,6 +5,7 @@ import httpx
 import pytest
 from prometheus_client import REGISTRY
 
+from chaosnet_lab.budget import RetryBudget
 from chaosnet_lab.client import DownstreamError, call_downstream, retry_wait
 
 URL = "http://inventory:8000/items/42"
@@ -288,3 +289,57 @@ def test_no_wait_without_backoff_or_after_success() -> None:
 
 def test_no_wait_when_a_post_is_not_retried() -> None:
     assert call_with_backoff([timed_out()], backoff_s=0.1, method="POST") == []
+
+
+# --- retry budget (#138) -----------------------------------------------------------------
+
+
+def call_with_budget(script: Script, budget: RetryBudget) -> FakeDownstream:
+    fake = FakeDownstream(script)
+
+    async def go() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(fake.handle)) as client:
+            try:
+                await call_downstream(
+                    client, "GET", URL, hop=HOP, timeout_s=0.5, max_retries=2, budget=budget
+                )
+            except DownstreamError:
+                pass
+
+    asyncio.run(go())
+    return fake
+
+
+def denied() -> float:
+    return REGISTRY.get_sample_value("lab_retries_denied_total", {"hop": HOP}) or 0
+
+
+def test_an_empty_budget_turns_off_the_retries() -> None:
+    budget = RetryBudget()
+    budget.tokens = 0
+    before = denied()
+    fake = call_with_budget([timed_out()], budget)
+    assert len(fake.requests) == 1  # no retry
+    assert denied() - before == 1
+
+
+def test_a_full_budget_pays_for_the_retries_as_before() -> None:
+    budget = RetryBudget(cap=10)
+    fake = call_with_budget([timed_out()], budget)
+    assert len(fake.requests) == 3
+    assert budget.tokens == pytest.approx(10 - 2)  # +0.1 for the call, capped; 2 retries
+
+
+def test_in_a_storm_retries_stop_once_the_budget_is_spent() -> None:
+    budget = RetryBudget(cap=4)
+    sent = sum(len(call_with_budget([timed_out()], budget).requests) for _ in range(10))
+    # the first two calls retry twice each (4 tokens), the rest roughly once in ten
+    assert sent < 3 * 10
+    assert sent == pytest.approx(10 + 4, abs=1)
+
+
+def test_a_success_takes_no_token() -> None:
+    budget = RetryBudget(cap=10)
+    budget.tokens = 5
+    call_with_budget([200], budget)
+    assert budget.tokens == pytest.approx(5.1)

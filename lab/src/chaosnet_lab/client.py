@@ -8,8 +8,11 @@ from typing import Any
 import httpx
 from prometheus_client import Counter
 
+from chaosnet_lab.budget import RetryBudget
+
 # Counted by the caller, so attempts to a service that hangs are counted too (#116).
 ATTEMPTS = Counter("lab_attempts", "Attempts to call another service", ["hop", "outcome"])
+RETRIES_DENIED = Counter("lab_retries_denied", "Retries the retry budget refused", ["hop"])
 
 
 def retry_wait(attempt: int, backoff_s: float, rand: float) -> float:
@@ -40,6 +43,7 @@ async def call_downstream(
     timeout_s: float,
     max_retries: int,
     backoff_s: float = 0.0,
+    budget: RetryBudget | None = None,
     json: Any = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> httpx.Response:
@@ -48,6 +52,8 @@ async def call_downstream(
     Rules (tests/test_client.py checks every one):
     - At most ``max_retries + 1`` attempts in total. Between two attempts it waits
       ``retry_wait`` (backoff with jitter, #119); with ``backoff_s`` 0 it retries at once.
+    - With a ``budget`` (#138), the first attempt earns it a share of a token and every
+      retry must take a whole one; refused, the failure is final at once.
     - Every attempt uses ``timeout_s`` as its own timeout (not a total budget).
     - Any HTTP response (200, 404, 500, ...) is returned as-is, without retrying.
       Deciding what a status code means is the caller's job.
@@ -62,6 +68,8 @@ async def call_downstream(
     if max_retries < 0:
         raise ValueError(f"max_retries must be >= 0, not {max_retries}")
     code = 503
+    if budget is not None:
+        budget.first_attempt()
     for attempt in range(max_retries + 1):
         try:
             res = await client.request(method, url, json=json, timeout=timeout_s)
@@ -83,7 +91,12 @@ async def call_downstream(
             code = 504
             if method != "GET":
                 break
-        if backoff_s > 0 and attempt < max_retries:
+        if attempt == max_retries:
+            break
+        if budget is not None and not budget.try_retry():
+            RETRIES_DENIED.labels(hop).inc()
+            break
+        if backoff_s > 0:
             await sleep(retry_wait(attempt, backoff_s, random.random()))
 
     raise DownstreamError(code, hop)

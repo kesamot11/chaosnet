@@ -84,6 +84,7 @@ def service_config(topology: Topology, service: str) -> dict[str, Any]:
                 "max_retries": link.max_retries,
                 "backoff_s": link.backoff_s,
                 "breaker": link.breaker,
+                "retry_budget": link.retry_budget,
             }
         )
     depends_on: dict[str, Any] = {}
