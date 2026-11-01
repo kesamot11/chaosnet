@@ -16,8 +16,12 @@ class RetryBudget:
 
     def first_attempt(self) -> None:
         """A first attempt on the link earns `ratio` of a token, up to `cap`."""
-        raise NotImplementedError("Tomáš, #138")
+        self.tokens = min(self.cap, self.tokens + self.ratio)
 
     def try_retry(self) -> bool:
         """True and one token less if a retry is affordable; False if not."""
-        raise NotImplementedError("Tomáš, #138")
+        # 1e-9: ten times 0.1 is 0.9999999999999999 in floats, which must still pay
+        if self.tokens < 1.0 - 1e-9:
+            return False
+        self.tokens = self.tokens - 1.0
+        return True
