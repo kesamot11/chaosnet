@@ -470,3 +470,35 @@ Own-words questions:
   right: the gateway retries at 1.0 s while orders still runs its first chain.
 
 Revisit jitter vs backoff in the Sprint 6 check.
+
+---
+
+## 2026-11-02: Sprint 6, circuit breaker and retry budget
+
+- **A breaker needs evidence, and evidence takes as long as the failing calls**: it
+  cannot stop the first flood, only the long one (EXP-006).
+- **A breaker decides how a call fails, not whether it succeeds**: faster errors and a
+  rest for the service; saving requests needs a fallback (#145).
+- **A breaker closes only through traffic**: the first user after a recovery is the
+  trial. At low traffic, with slow failures, it may never reach its minimum.
+- **A retry budget is a token bucket**: 0.1 per first attempt, 1 per retry; full in calm
+  times (a rare failure is retried), empty in a storm (retries stop).
+- **Floats**: ten times 0.1 is 0.9999999999999999; compare with a tolerance.
+- **Backoff makes the wait grow, jitter makes it random**; together: a random wait up
+  to a growing cap.
+- **Budget and breaker together**: the budget limits retries in every situation, the
+  breaker stops even first attempts in a lasting outage.
+
+---
+
+## 2026-11-02: Sprint 6 interview check
+
+Quiz 10/10, discounted: the right answer was the longest option and nearly always B
+(Tomáš's catch). Own words:
+
+- *Backoff vs jitter?* Jitter right: a random wait so the retries do not all come back
+  at once. Backoff called "a fixed extra wait"; it grows, doubling each time.
+- *Breaker or budget in production, or both?* "The breaker when the answer must come as
+  fast as possible, the budget to maximise the chance of success." Refined: the budget
+  limits retries but still sends every first attempt; the breaker stops all calls in a
+  lasting outage; used together (Envoy, Finagle, gRPC).
