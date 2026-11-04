@@ -1,7 +1,8 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { expect, test, vi } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import type { Experiment, PhaseSummary } from "./api";
 import { ExperimentStatus, JAEGER } from "./ExperimentStatus";
+import { remember } from "./progress";
 
 function measured(p50: number, p95: number, ok: number, failed = 0): PhaseSummary {
   return {
@@ -123,4 +124,38 @@ test("no link without a trace: not measured yet, or recorded before #159", () =>
   show(experiment({ state: "inject", results: { baseline: BASELINE } }));
   expect(within(row("baseline")).queryByRole("link")).not.toBeInTheDocument();
   expect(within(row("inject")).queryByRole("link")).not.toBeInTheDocument();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  localStorage.clear();
+});
+
+test("progress: 9 s of a 15 s inject when this page saw it start (#99)", () => {
+  vi.useFakeTimers({ now: 1_009_000 });
+  remember(7, "inject", 1_000_000);
+  show(experiment({ state: "inject" }));
+  expect(screen.getByRole("progressbar")).toHaveAttribute("value", "9");
+  expect(screen.getByRole("progressbar")).toHaveAttribute("max", "15");
+  expect(screen.getByText(/9 s of 15 s/)).toBeInTheDocument();
+});
+
+test("progress: past its length the phase waits for requests in flight (#99)", () => {
+  vi.useFakeTimers({ now: 1_017_000 });
+  remember(7, "inject", 1_000_000);
+  show(experiment({ state: "inject" }));
+  expect(screen.getByText(/waiting for requests in flight/)).toBeInTheDocument();
+});
+
+test("progress: no made-up bar when the start is unknown (#99)", () => {
+  show(experiment({ state: "inject" }));
+  expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  expect(screen.getByText(/wasn't open when the phase started.*15 s/)).toBeInTheDocument();
+});
+
+test("progress: none before the experiment starts or after it ends (#99)", () => {
+  remember(7, "completed", 1_000_000);
+  show(experiment({ state: "completed" }));
+  expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  expect(screen.queryByText(/wasn't open/)).not.toBeInTheDocument();
 });
