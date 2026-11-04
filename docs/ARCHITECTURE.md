@@ -44,6 +44,7 @@ flowchart LR
 | lab service | `lab/src/chaosnet_lab/service.py` | The one program every node runs (gateway, orders, inventory are names in `lab/topology.json`). Calls every service it links to at the same time, passes a failure on naming the hop; a leaf answers at once. Config (`SERVICE_NAME`, `CALLS`) validated at startup. |
 | lab generator | `backend/src/chaosnet/labgen.py` | `uv run chaosnet-lab` writes `lab/compose.yaml` and `lab/toxiproxy.json` from `lab/topology.json` (#73). A test fails when they drift apart. |
 | `call_downstream` | `lab/src/chaosnet_lab/client.py` | Per-attempt timeout, retries on transport failure, 503/504 classification. Counts every attempt (`lab_attempts_total{hop, outcome}`). |
+| tracing, Jaeger | `lab/src/chaosnet_lab/tracing.py`, generated into `lab/compose.yaml` | Every lab service exports spans over OTLP to Jaeger; FastAPI and httpx instrumentation read and set `traceparent`, so a request is one trace across services and Toxiproxy (#157, ADR-009). UI on `127.0.0.1:16686`. |
 | Prometheus | generated into `lab/compose.yaml`, `lab/prometheus.yml` | Scrapes every service's `/metrics` each second inside the lab network; API on `127.0.0.1:9090`. Counts requests per service and attempts per hop (#116). |
 | load generator | `backend/src/chaosnet/loadgen.py` | Open-model load at a fixed rate; latency from scheduled send time; JSON report. |
 | `percentile` | `backend/src/chaosnet/stats.py` | Nearest-rank percentiles for reports. |

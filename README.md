@@ -66,6 +66,10 @@ attempt on every link, with its outcome (`lab_attempts_total`), counted by the c
 attempts to a hanging service are counted too. Query it at http://127.0.0.1:9090
 (`PROMETHEUS_PORT` to change), e.g. `lab_attempts_total{hop="orders->inventory"}`.
 
+Every request is traced (OpenTelemetry): one trace per request, with a span in every
+service it passes, joined by the `traceparent` header. Open Jaeger at
+http://127.0.0.1:16686 (`JAEGER_PORT` to change) and pick the service `gateway`.
+
 Generate load against it (open model, so a slow lab cannot hide its latency):
 
 ```bash
