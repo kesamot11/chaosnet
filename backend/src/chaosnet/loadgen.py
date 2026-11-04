@@ -133,7 +133,13 @@ def example_trace(samples: list[Sample]) -> str | None:
     nothing failed, the slowest request, which explains the p95. Only requests that
     were sent have a trace (a dropped one has none); None if there is none.
     """
-    raise NotImplementedError("Tomáš, #159")
+    filtered = [s for s in samples if s.trace_id is not None]
+    if len(filtered) == 0:
+        return None
+    failed = [s for s in filtered if s.outcome != "ok"]
+    if len(failed) > 0:
+        return max(failed, key=lambda s: s.latency_s).trace_id
+    return max(filtered, key=lambda s: s.latency_s).trace_id
 
 
 def per_second(samples: list[Sample]) -> list[dict[str, Any]]:
