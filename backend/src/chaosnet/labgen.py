@@ -127,8 +127,9 @@ CONTROL = ("toxiproxy", "watchdog", "prometheus", "jaeger")
 
 # Every lab service sends its spans to Jaeger (#157); batches every 0.5 s, so a trace
 # is complete in Jaeger about a second after the request.
+# LAB_TRACING_ENDPOINT= (empty) switches tracing off, e.g. to measure its cost (#161).
 TRACING_ENV = {
-    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://jaeger:4318",
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "${LAB_TRACING_ENDPOINT-http://jaeger:4318}",
     "OTEL_BSP_SCHEDULE_DELAY": "500",
 }
 

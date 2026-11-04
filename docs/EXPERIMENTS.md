@@ -591,3 +591,18 @@ predicted ~20 ms.
 - **An open breaker leaves almost nothing in a trace**: without the `circuit open`
   event, a 5 ms failure with no call would be a mystery. Recording why something did
   not happen matters as much as recording what did.
+
+## EXP-009: what tracing costs (#161)
+
+**Question:** every request now creates ~11 spans in three services. How much slower is
+the healthy lab with tracing on than with tracing off?
+
+**Setup:** the default lab, healthy; tracing switched off by `LAB_TRACING_ENDPOINT=`
+(empty: the services create no spans) and on by default.
+
+**Prediction (Tomáš, 2026-11-04, before any measurement, translated from Czech):**
+**no measurable change in p50.** *How this came about:* first ~120 ms (11 spans as 11
+extra requests), then ~510 ms (reading the 0.5 s export delay as a wait); then, after
+going through `BatchSpanProcessor` (spans are kept in memory during the request and
+sent in one batch by a background thread every 0.5 s, never on the request's path):
+"by nothing".
