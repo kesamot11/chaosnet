@@ -144,7 +144,8 @@ def test_compose_has_the_control_plane_and_every_service() -> None:
         "inventory",
     ]
     assert services["orders"]["command"][1] == "chaosnet_lab.service:app"
-    assert services["orders"]["environment"]["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://jaeger:4318"
+    endpoint = services["orders"]["environment"]["OTEL_EXPORTER_OTLP_ENDPOINT"]
+    assert endpoint == "${LAB_TRACING_ENDPOINT-http://jaeger:4318}"
     assert services["toxiproxy"]["healthcheck"]["test"][-1] == "gateway-orders"
 
 
