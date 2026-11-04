@@ -29,3 +29,8 @@ Object.defineProperties(globalThis.HTMLElement.prototype, {
 // Edge labels measure their SVG text.
 // @ts-expect-error: jsdom has no SVG layout, so getBBox does not exist on SVGElement
 globalThis.SVGElement.prototype.getBBox = () => ({ x: 0, y: 0, width: 80, height: 16 });
+
+// Node 25+ has its own Web Storage, which hides jsdom's: without --localstorage-file the
+// global localStorage is undefined. Point it back at jsdom's, as a browser has it (#99).
+// @ts-expect-error: vitest's jsdom environment puts the JSDOM instance on globalThis
+Object.defineProperty(globalThis, "localStorage", { value: globalThis.jsdom.window.localStorage });

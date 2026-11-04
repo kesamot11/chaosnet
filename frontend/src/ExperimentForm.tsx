@@ -1,6 +1,7 @@
 import { type ChangeEvent, type FormEvent, useState } from "react";
 import { type Answer, startExperiment } from "./api";
 import { type FormValues, toSpec } from "./form";
+import { remember } from "./progress";
 
 const DEFAULTS: FormValues = {
   name: "",
@@ -43,7 +44,10 @@ export function ExperimentForm({ link, onStarted }: Props) {
     const res = await startExperiment(spec);
     setResult(res);
     setSending(false);
-    if (res.ok) onStarted(res.experiment.id);
+    if (res.ok) {
+      remember(res.experiment.id, "baseline", Date.now());
+      onStarted(res.experiment.id);
+    }
   }
 
   return (

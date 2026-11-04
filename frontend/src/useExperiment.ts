@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { END_STATES, type Experiment, fetchExperiment } from "./api";
+import { END_STATES, type Experiment, fetchExperiment, type State } from "./api";
+
+import { remember } from "./progress";
 
 export const POLL_MS = 1000; // Sprint 4 decision 3
 export const RETRY_MS = 30_000; // after no answer; back to POLL_MS once the controller answers
@@ -21,11 +23,16 @@ export function useExperiment(id: number | null) {
     if (id === null) return;
     const polling = new AbortController(); // cancels this polling, not the experiment
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let previous: State | null = null;
 
     async function poll(id: number) {
       let wait = POLL_MS;
       try {
         const exp = await fetchExperiment(id, polling.signal);
+        if (previous != null && previous !== exp.state) {
+          remember(id, exp.state, Date.now());
+        }
+        previous = exp.state;
         setExperiment(exp);
         setUnreachable(false);
         if (END_STATES.has(exp.state)) return;
