@@ -1,6 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { State } from "./api";
+import { recall } from "./progress";
 import { POLL_MS, RETRY_MS, useExperiment } from "./useExperiment";
 
 function record(state: State) {
@@ -29,6 +30,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  localStorage.clear();
 });
 
 test("polls every second and stops at an end state", async () => {
@@ -83,4 +86,29 @@ test("nothing to poll without an experiment", async () => {
   await wait(10 * POLL_MS);
   expect(fetch).not.toHaveBeenCalled();
   expect(result.current.experiment).toBeNull();
+});
+
+test("remembers a phase start only when this page saw the phase change (#99)", async () => {
+  vi.setSystemTime(1_000_000);
+  controllerSays("baseline", "baseline", "inject", "inject");
+  renderHook(() => useExperiment(7));
+  await wait(0);
+  await wait(POLL_MS);
+  expect(recall(7, "baseline")).toBeNull(); // the page opened mid-baseline: start unknown
+  await wait(POLL_MS);
+  expect(recall(7, "inject")).toBe(1_002_000); // baseline -> inject seen at this poll
+  await wait(POLL_MS);
+  expect(recall(7, "inject")).toBe(1_002_000); // the same state again doesn't move it
+});
+
+test("a browser that refuses storage still polls (#99)", async () => {
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    throw new DOMException("storage is off", "SecurityError");
+  });
+  controllerSays("baseline", "inject");
+  const { result } = renderHook(() => useExperiment(7));
+  await wait(0);
+  await wait(POLL_MS);
+  expect(result.current.experiment?.state).toBe("inject");
+  expect(result.current.unreachable).toBe(false);
 });
