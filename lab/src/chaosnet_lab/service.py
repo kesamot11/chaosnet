@@ -120,6 +120,7 @@ async def call(client: httpx.AsyncClient, hop: Hop) -> dict[str, Any] | Response
         return await call_once(client, hop)
     if not hop.breaker.allow():
         ATTEMPTS.labels(hop.name, "rejected").inc()
+        # Tomáš, #158: an event "circuit open" on the current span, attribute chaosnet.hop
         return JSONResponse({"error": "circuit_open", "failed_hop": hop.name}, 503)
     answer: dict[str, Any] | Response = Response(status_code=500)  # if call_once raises
     try:

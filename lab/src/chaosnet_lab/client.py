@@ -106,8 +106,10 @@ async def call_downstream(
             break
         if budget is not None and not budget.try_retry():
             RETRIES_DENIED.labels(hop).inc()
+            # Tomáš, #158: an event "retry refused" on the current span, reason "budget"
             break
         if backoff_s > 0:
+            # Tomáš, #158: the wait as a span "backoff", attribute chaosnet.wait_s
             await sleep(retry_wait(attempt, backoff_s, random.random()))
 
     raise DownstreamError(code, hop)
