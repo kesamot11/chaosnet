@@ -12,6 +12,7 @@ exactly the latency we want to see: coordinated omission.
 import argparse
 import asyncio
 import json
+import secrets
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -30,6 +31,7 @@ class Sample:
     send_lag_s: float  # how late the generator itself was in sending
     latency_s: float  # from scheduled send time until the outcome was known
     outcome: Outcome
+    trace_id: str | None = None  # the trace this request started (#159); None if dropped
 
 
 async def run_load(
@@ -60,8 +62,14 @@ async def run_load(
     start = time.perf_counter()
 
     async def send(scheduled: float, send_lag: float) -> None:
+        # The generator starts the trace itself (W3C traceparent), so the trace ID is
+        # known for every request, also for one that gets no answer at all (#159).
+        trace_id = secrets.token_hex(16)
+        traceparent = f"00-{trace_id}-{secrets.token_hex(8)}-01"
         try:
-            res = await client.request(method, url, json=json_body, timeout=timeout_s)
+            res = await client.request(
+                method, url, json=json_body, timeout=timeout_s, headers={"traceparent": traceparent}
+            )
             outcome: Outcome = (
                 "http_5xx" if res.status_code >= 500 else "http_4xx" if res.is_error else "ok"
             )
@@ -70,7 +78,7 @@ async def run_load(
         except httpx.TransportError:
             outcome = "connection_error"
         latency = time.perf_counter() - scheduled
-        samples.append(Sample(scheduled - start, send_lag, latency, outcome))
+        samples.append(Sample(scheduled - start, send_lag, latency, outcome, trace_id))
 
     for i in range(round(rate * duration_s)):
         scheduled = start + i / rate
@@ -114,7 +122,18 @@ def summarize(samples: list[Sample], *, rate: float, duration_s: float) -> dict[
         # If this grows, the generator (not the target) is the bottleneck and the run is invalid.
         "send_lag_ms": latency_ms([s.send_lag_s for s in samples]),
         "per_second": per_second(samples),  # for the latency graph (#62, #79)
+        "example_trace": example_trace(samples),  # a trace to open from the UI (#159)
     }
+
+
+def example_trace(samples: list[Sample]) -> str | None:
+    """The trace ID worth opening for a phase (#159, rule by Tomáš 2026-11-04).
+
+    The slowest failed request, because the link is there to show what went wrong; if
+    nothing failed, the slowest request, which explains the p95. Only requests that
+    were sent have a trace (a dropped one has none); None if there is none.
+    """
+    raise NotImplementedError("Tomáš, #159")
 
 
 def per_second(samples: list[Sample]) -> list[dict[str, Any]]:
