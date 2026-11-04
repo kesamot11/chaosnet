@@ -59,6 +59,9 @@ export function ExperimentStatus({ experiment, unreachable, onAbort }: Props) {
                     <td>{s.latency_ms.all?.p50.toFixed(1)} ms</td>
                     <td>{s.latency_ms.all?.p95.toFixed(1)} ms</td>
                     <td>{(rate * 100).toFixed(1)} %</td>
+                    <td>
+                      {s.example_trace && <a href={`${JAEGER}/trace/${s.example_trace}`}>trace</a>}
+                    </td>
                   </>
                 )}
               </tr>
