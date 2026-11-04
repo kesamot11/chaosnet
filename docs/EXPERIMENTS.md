@@ -606,3 +606,37 @@ extra requests), then ~510 ms (reading the 0.5 s export delay as a wait); then, 
 going through `BatchSpanProcessor` (spans are kept in memory during the request and
 sent in one batch by a background thread every 0.5 s, never on the request's path):
 "by nothing".
+
+**Setup:** lab at `dac6246`, default topology, healthy.
+
+**Method:** `experiments/exp009.py`: 5 pairs (2026-11-04 18:18–18:23 UTC), each tracing
+off then on; gateway, orders and inventory recreated with that setting (checked
+afterwards: the services' `OTEL_EXPORTER_OTLP_ENDPOINT` is empty with the switch and
+`http://jaeger:4318` without), 5 s of warm-up load, then 20 s at 50 req/s. Interleaved
+as EXP-003 taught; the order within a pair was always off first.
+
+**Results** (1 000 requests per run, all `ok`):
+
+| pair | off p50 | on p50 | off p95 | on p95 |
+|---|---|---|---|---|
+| 1 | 6.48 | 8.17 | 8.48 | 13.20 |
+| 2 | 6.34 | 7.38 | 7.92 | 9.46 |
+| 3 | 6.45 | 7.30 | 8.68 | 8.80 |
+| 4 | 6.28 | 7.24 | 8.77 | 9.46 |
+| 5 | 6.39 | 7.11 | 9.10 | 8.77 |
+| **median** | **6.39** | **7.30** | **8.68** | **9.46** |
+
+**Prediction:** wrong. p50 is **0.9 ms (14 %) higher with tracing**, in every pair; the
+ranges do not overlap (slowest off 6.48 ms, fastest on 7.11 ms).
+
+**Findings:**
+
+- **Exporting is free, creating spans is not.** Sending happens in the background, as
+  predicted, but every request passes three services and each one creates spans on the
+  request's path: the FastAPI middleware (reading `traceparent`), the httpx client
+  (adding it) and the attempt spans. About 0.3 ms per service.
+- **Relative to a 6 ms request it is 14 %; relative to a request of hundreds of
+  milliseconds it would be well under 1 %.** That is why tracing usually stays on in
+  production, with sampling (a trace for only some of the requests) where it matters.
+- Not separated here: the share of the instrumentation vs. the attempt spans, and the
+  background export's CPU.
