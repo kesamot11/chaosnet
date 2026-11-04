@@ -8,6 +8,9 @@ type Props = {
   onAbort: () => void;
 };
 
+// Jaeger's UI, published by the lab on this port (#157); a trace opens at /trace/<id>.
+export const JAEGER = "http://127.0.0.1:16686";
+
 const PHASES: Phase[] = ["baseline", "inject", "recover"];
 
 /** State, per-phase results and verdict of one experiment (#78); contract in the tests. */
@@ -56,6 +59,9 @@ export function ExperimentStatus({ experiment, unreachable, onAbort }: Props) {
                     <td>{s.latency_ms.all?.p50.toFixed(1)} ms</td>
                     <td>{s.latency_ms.all?.p95.toFixed(1)} ms</td>
                     <td>{(rate * 100).toFixed(1)} %</td>
+                    <td>
+                      {s.example_trace && <a href={`${JAEGER}/trace/${s.example_trace}`}>trace</a>}
+                    </td>
                   </>
                 )}
               </tr>

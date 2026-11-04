@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import type { Experiment, PhaseSummary } from "./api";
-import { ExperimentStatus } from "./ExperimentStatus";
+import { ExperimentStatus, JAEGER } from "./ExperimentStatus";
 
 function measured(p50: number, p95: number, ok: number, failed = 0): PhaseSummary {
   return {
@@ -110,4 +110,17 @@ test("no answer from the controller: says so and keeps the last known state", ()
   show(experiment({ state: "inject", results: { baseline: BASELINE } }), true);
   expect(screen.getByText(/Controller not reachable, retrying/)).toBeInTheDocument();
   expect(screen.getByText(/inject \(2\/3\)/)).toBeInTheDocument();
+});
+
+test("a measured phase links to its example trace in Jaeger", () => {
+  const traced: PhaseSummary = { ...INJECT, example_trace: "4bf92f3577b34da6a3ce929d0e0e4736" };
+  show(experiment({ state: "recover", results: { baseline: BASELINE, inject: traced } }));
+  const link = within(row("inject")).getByRole("link", { name: "trace" });
+  expect(link).toHaveAttribute("href", `${JAEGER}/trace/4bf92f3577b34da6a3ce929d0e0e4736`);
+});
+
+test("no link without a trace: not measured yet, or recorded before #159", () => {
+  show(experiment({ state: "inject", results: { baseline: BASELINE } }));
+  expect(within(row("baseline")).queryByRole("link")).not.toBeInTheDocument();
+  expect(within(row("inject")).queryByRole("link")).not.toBeInTheDocument();
 });

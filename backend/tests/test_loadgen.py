@@ -6,7 +6,7 @@ from typing import Any
 import httpx
 import pytest
 
-from chaosnet.loadgen import Sample, per_second, run_load, summarize
+from chaosnet.loadgen import Outcome, Sample, example_trace, per_second, run_load, summarize
 
 Handler = Callable[[httpx.Request], Coroutine[Any, Any, httpx.Response]]
 
@@ -184,3 +184,60 @@ def test_per_second_of_nothing_is_empty() -> None:
 def test_summary_contains_the_series() -> None:
     report = summarize([Sample(0.1, 0.0, 0.010, "ok")], rate=1, duration_s=1)
     assert report["per_second"] == [{"second": 0, "p50": 10.0, "p95": 10.0, "error_rate": 0.0}]
+
+
+# --- example_trace (#159) ---------------------------------------------------------------
+
+
+def traced(latency_s: float, outcome: Outcome, trace_id: str | None) -> Sample:
+    return Sample(0.0, 0.0, latency_s, outcome, trace_id)
+
+
+def test_the_slowest_failed_request_is_the_example() -> None:
+    samples = [
+        traced(0.010, "ok", "fast-ok"),
+        traced(0.900, "ok", "slow-ok"),  # slower, but it did not fail
+        traced(0.500, "timeout", "timeout-a"),
+        traced(1.500, "http_5xx", "failed-slowest"),
+    ]
+    assert example_trace(samples) == "failed-slowest"
+
+
+def test_without_failures_the_slowest_request_is_the_example() -> None:
+    samples = [traced(0.010, "ok", "a"), traced(0.030, "ok", "slowest"), traced(0.020, "ok", "b")]
+    assert example_trace(samples) == "slowest"
+
+
+def test_a_dropped_request_has_no_trace_and_is_not_chosen() -> None:
+    samples = [traced(0.010, "ok", "sent"), traced(0.0, "dropped", None)]
+    assert example_trace(samples) == "sent"
+
+
+def test_no_trace_at_all() -> None:
+    assert example_trace([]) is None
+    assert example_trace([traced(0.0, "dropped", None)]) is None
+
+
+def test_every_sent_request_starts_its_own_trace() -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers["traceparent"])
+        return httpx.Response(200)
+
+    async def go() -> list[Sample]:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await run_load(
+                client,
+                "GET",
+                "http://lab/orders",
+                rate=50,
+                duration_s=0.1,
+                timeout_s=1,
+                max_in_flight=10,
+            )
+
+    samples = asyncio.run(go())
+    assert len(seen) == len(samples) == 5
+    assert {h.split("-")[1] for h in seen} == {s.trace_id for s in samples}
+    assert len({s.trace_id for s in samples}) == 5  # one trace per request

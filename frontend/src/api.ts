@@ -58,6 +58,8 @@ export type PhaseSummary = {
   outcomes: Record<string, number>; // e.g. { ok: 150, timeout: 50 }; a key with 0 is missing
   latency_ms: { ok: Percentiles | null; all: Percentiles | null }; // null: no requests
   per_second: SecondSummary[]; // from second 0 to the last second with a request (#62)
+  // The trace to open for this phase (#159); missing in experiments recorded before it.
+  example_trace?: string | null;
 };
 
 /** One point of the latency graph; null: no request was sent in that second. */
