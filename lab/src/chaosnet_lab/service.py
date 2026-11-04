@@ -28,6 +28,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
 from chaosnet_lab.breaker import Breaker
 from chaosnet_lab.budget import RetryBudget
 from chaosnet_lab.client import ATTEMPTS, DownstreamError, call_downstream
+from chaosnet_lab.tracing import setup_tracing
 
 # Counted by the service itself; a service that hangs counts nothing (#116, see client.py).
 REQUESTS = Counter("lab_requests", "Requests this service received", ["service"])
@@ -79,6 +80,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
 
 app = FastAPI(title="lab service", lifespan=lifespan)
+setup_tracing(app)
 
 
 @app.get("/healthz")

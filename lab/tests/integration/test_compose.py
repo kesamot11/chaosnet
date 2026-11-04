@@ -10,6 +10,7 @@ import signal
 import subprocess
 import time
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,7 @@ PORT = "18080"
 TOXIPROXY_PORT = "18474"
 WATCHDOG_PORT = "18475"
 PROMETHEUS_PORT = "19090"
+JAEGER_PORT = "18686"
 ENV = {
     **os.environ,
     "COMPOSE_PROJECT_NAME": "chaosnet-lab-test",
@@ -30,6 +32,7 @@ ENV = {
     "TOXIPROXY_PORT": TOXIPROXY_PORT,
     "WATCHDOG_PORT": WATCHDOG_PORT,
     "PROMETHEUS_PORT": PROMETHEUS_PORT,
+    "JAEGER_PORT": JAEGER_PORT,
 }
 # orders->inventory in topology.json: 0.5 s timeout, 2 retries
 ORDERS_BUDGET_S = (2 + 1) * 0.5
@@ -88,6 +91,7 @@ def test_all_services_are_healthy() -> None:
         "toxiproxy": "healthy",
         "watchdog": "healthy",
         "prometheus": "healthy",
+        "jaeger": "healthy",
     }
 
 
@@ -122,11 +126,49 @@ def test_one_request_is_counted_once_per_service_and_hop() -> None:
     assert {k: after[k] - before.get(k, 0) for k in expected} == dict.fromkeys(expected, 1)
 
 
+def latest_trace_services() -> tuple[set[str], set[str]]:
+    """Services and trace IDs of the spans of the latest gateway trace (Jaeger API v3)."""
+    now = datetime.now(UTC)
+    params = {
+        "query.service_name": "gateway",
+        "query.start_time_min": (now - timedelta(minutes=5)).isoformat(),
+        "query.start_time_max": now.isoformat(),
+        "query.num_traces": 1,
+    }
+    url = f"http://127.0.0.1:{JAEGER_PORT}/api/v3/traces"
+    res = httpx.get(url, params=params, timeout=5)
+    if res.status_code == 404:  # no trace yet
+        return set(), set()
+    services: set[str] = set()
+    trace_ids: set[str] = set()
+    for resource_spans in res.json()["result"]["resourceSpans"]:
+        attributes: list[dict[str, Any]] = resource_spans["resource"]["attributes"]
+        services |= {a["value"]["stringValue"] for a in attributes if a["key"] == "service.name"}
+        for scope in resource_spans["scopeSpans"]:
+            trace_ids |= {span["traceId"] for span in scope["spans"]}
+    return services, trace_ids
+
+
+def test_one_request_is_one_trace_through_every_service() -> None:
+    res, _ = order()
+    assert res.status_code == 200
+    deadline = time.monotonic() + 15  # spans are exported in batches every 0.5 s
+    services: set[str] = set()
+    trace_ids: set[str] = set()
+    while time.monotonic() < deadline:
+        services, trace_ids = latest_trace_services()
+        if services == {"gateway", "orders", "inventory"}:
+            break
+        time.sleep(0.5)
+    assert services == {"gateway", "orders", "inventory"}
+    assert len(trace_ids) == 1, "the traceparent header joins all spans into one trace"
+
+
 def test_only_gateway_and_control_apis_are_published() -> None:
     services = [json.loads(line) for line in compose("ps", "--format", "json").splitlines()]
     published = {s["Service"] for s in services if any(p["PublishedPort"] for p in s["Publishers"])}
-    # gateway for traffic; toxiproxy, watchdog and prometheus are control APIs
-    assert published == {"gateway", "toxiproxy", "watchdog", "prometheus"}
+    # gateway for traffic; toxiproxy, watchdog, prometheus and jaeger are control APIs
+    assert published == {"gateway", "toxiproxy", "watchdog", "prometheus", "jaeger"}
 
 
 def test_stopped_inventory_gives_fast_503_then_recovers() -> None:

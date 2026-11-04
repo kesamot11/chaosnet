@@ -123,7 +123,14 @@ SERVICE_BASE: dict[str, Any] = {
 }
 
 # The control plane of the lab, the same for every topology.
-CONTROL = ("toxiproxy", "watchdog", "prometheus")
+CONTROL = ("toxiproxy", "watchdog", "prometheus", "jaeger")
+
+# Every lab service sends its spans to Jaeger (#157); batches every 0.5 s, so a trace
+# is complete in Jaeger about a second after the request.
+TRACING_ENV = {
+    "OTEL_EXPORTER_OTLP_ENDPOINT": "http://jaeger:4318",
+    "OTEL_BSP_SCHEDULE_DELAY": "500",
+}
 
 HEADER = """\
 # Generated from topology.json by `uv run chaosnet-lab` (in backend/), see #73.
@@ -182,9 +189,20 @@ def compose_config(topology: Topology) -> dict[str, Any]:
                 "test": ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/ready"],
             },
         },
+        # Collects the spans of every service (OTLP on 4318) and shows the traces (#157).
+        "jaeger": {
+            "image": "jaegertracing/jaeger:2.22.0",
+            "ports": ["127.0.0.1:${JAEGER_PORT:-16686}:16686"],
+            "healthcheck": {
+                **SERVICE_BASE["healthcheck"],
+                "test": ["CMD", "wget", "-qO-", "http://127.0.0.1:13133/status"],
+            },
+        },
     }
     for service in topology.services:
-        services[service.name] = {**SERVICE_BASE, **service_config(topology, service.name)}
+        config = service_config(topology, service.name)
+        config["environment"] = {**config["environment"], **TRACING_ENV}
+        services[service.name] = {**SERVICE_BASE, **config}
     return {"name": "chaosnet-lab", "services": services}
 
 
