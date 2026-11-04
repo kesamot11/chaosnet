@@ -1,5 +1,5 @@
 import { END_STATES, type Experiment, type Phase } from "./api";
-
+import { phaseProgress, recall } from "./progress";
 import { errorRate } from "./results";
 
 type Props = {
@@ -13,6 +13,32 @@ export const JAEGER = "http://127.0.0.1:16686";
 
 const PHASES: Phase[] = ["baseline", "inject", "recover"];
 
+function PhaseBar({ experiment }: { experiment: Experiment }) {
+  const phase = experiment.state as Phase;
+  const total_s = experiment.spec.phases_s[phase];
+  const p = phaseProgress(recall(experiment.id, phase), total_s, Date.now());
+  if (p.kind === "unknown") {
+    return (
+      <p>
+        This page wasn't open when the phase started, so there is no progress bar. The phase lasts{" "}
+        {p.total_s} s.
+      </p>
+    );
+  }
+  if (p.kind === "waiting") {
+    return (
+      <p>
+        <progress value={1} max={1} /> waiting for requests in flight
+      </p>
+    );
+  }
+  return (
+    <p>
+      <progress value={p.elapsed_s} max={p.total_s} /> {Math.round(p.elapsed_s)} s of {p.total_s} s
+    </p>
+  );
+}
+
 /** State, per-phase results and verdict of one experiment (#78); contract in the tests. */
 export function ExperimentStatus({ experiment, unreachable, onAbort }: Props) {
   const n = PHASES.indexOf(experiment.state as Phase) + 1;
@@ -21,6 +47,7 @@ export function ExperimentStatus({ experiment, unreachable, onAbort }: Props) {
       <h2>
         {experiment.name}: {experiment.state} {n > 0 && `(${n}/3)`}
       </h2>
+      {n > 0 && <PhaseBar experiment={experiment} />}
       {!END_STATES.has(experiment.state) && (
         <button type="button" onClick={onAbort}>
           Abort
