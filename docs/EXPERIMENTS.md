@@ -556,3 +556,38 @@ events (#158). One request per configuration.
   only trace of why nothing was called. Tomáš's point first: with one request at low
   traffic the breaker never opens (minimum of 10 calls in 10 s, #136), and the trace is
   A's; so this case needs the breaker opened by load first.
+
+**Setup:** lab at `c421f8f` (the code of #165, now in `main`), configurations set by
+Tomáš in `lab/topology.json`, generated and restarted. One request each, 2026-11-04
+18:04–18:07 UTC.
+
+**Method:** `experiments/exp008.py`: inventory paused, one request (for the breaker, 20
+requests at once first to open it), inventory unpaused after 3 s, then the latest
+gateway trace from Jaeger's API printed as a tree (ASGI "http send" spans left out).
+Times relative to the start of the request.
+
+**Results:**
+
+- **A**: 504 in 1.557 s. One gateway attempt, `http_error`, 1.541 s; under it orders
+  with attempts 1–3 of 0.514, 0.510 and 0.507 s, each `timeout`; three inventory spans
+  at 4.62 s, when inventory resumed.
+- **B**: 504 in 2.036 s. Gateway attempt 1: 0.001 – 1.009 s, `timeout`; its orders span
+  0.005 – **1.531 s**, half a second after its parent ended. Gateway attempt 2: 1.009 –
+  2.023 s, `timeout`; its orders span 1.011 – **2.530 s**, after the whole request
+  (2.024 s). Six orders attempts of ~0.51 s, six inventory spans at 5.09 s.
+- **Breaker open** (after 20 requests at once): 503 in **0.005 s**. One gateway attempt,
+  `http_error`, 0.002 s; the orders span lasts 0.000 s and carries the `circuit open`
+  event; no attempt.
+
+**Predictions:** all three correct; the open breaker answered in 5 ms against the
+predicted ~20 ms.
+
+**Findings:**
+
+- **A trace shows the abandoned work in a single request**, which the counters of
+  EXP-004 could only show as totals: B's orders spans outlive their parents, the second
+  one the whole request, and every inventory span of the abandoned attempts appears
+  seconds later, at the moment inventory resumed.
+- **An open breaker leaves almost nothing in a trace**: without the `circuit open`
+  event, a 5 ms failure with no call would be a mystery. Recording why something did
+  not happen matters as much as recording what did.
