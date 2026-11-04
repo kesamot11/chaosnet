@@ -518,3 +518,44 @@ open again.
 | 1 | N failures in a row | misses alternating failures |
 | 1 | a rate without a minimum | one failure at night opens the breaker |
 | 3 | waiting for the timeout anyway | the user waits for an answer already known |
+
+---
+
+## ADR-009: Tracing with OpenTelemetry and Jaeger
+
+- **Status:** Accepted
+- **Date:** 2026-11-04 (Sprint 7 planning)
+- **Issues:** #156–#161, #99, epic #6 (M5)
+- **Decided by:** Tomáš; reasons below are his, recorded from the discussion
+
+### Context
+
+Prometheus (ADR-007) counts requests and attempts, but not *where the time of one
+request went*. EXP-004 to EXP-007 explained latencies by reasoning about timeouts;
+a trace shows them: one request as nested spans, one per service and attempt.
+
+### Decisions
+
+**1. M5 (tracing) before the fallback (#145).** *Reason:* tracing completes the
+observability started with Prometheus, and a fallback can then be seen working in a
+trace.
+
+**2. OpenTelemetry in the lab service, Jaeger as the backend**, a container in the lab
+network, its UI only on `127.0.0.1`. New infrastructure, approved by Tomáš.
+
+**3. The trace context travels in the W3C `traceparent` header**, read and set by the
+OpenTelemetry instrumentation of FastAPI and httpx. *Reason (Tomáš first proposed the
+JSON body):* a GET has no body, the body belongs to the application, and a header can
+be read without understanding the payload; it also carries the parent span, so the
+spans nest.
+
+**4. One span per attempt** in `call_downstream` (#158), so retries, backoff and
+refusals are visible.
+
+### Alternatives rejected
+
+| Decision | Rejected | Why |
+|---|---|---|
+| 3 | the trace ID in the JSON body | no body on GET; couples tracing to the payload |
+| 2 | tracing by hand (own IDs, own log) | the standard is what is used in practice |
+| 1 | the fallback first | it would be harder to show working without traces |
