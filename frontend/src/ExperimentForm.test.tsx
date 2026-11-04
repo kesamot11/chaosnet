@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { ExperimentForm } from "./ExperimentForm";
+import { recall } from "./progress";
 
 function reply(status: number, body: unknown) {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status })));
@@ -24,6 +25,7 @@ test("starts the experiment on the selected link", async () => {
   fillAndStart();
   expect(await screen.findByText("Experiment #7 started")).toBeInTheDocument();
   expect(onStarted).toHaveBeenCalledWith(7);
+  expect(recall(7, "baseline")).not.toBeNull();
   const body = JSON.parse(vi.mocked(fetch).mock.calls[0]?.[1]?.body as string);
   expect(body.fault).toEqual({
     kind: "latency",
