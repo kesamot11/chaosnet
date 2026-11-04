@@ -106,8 +106,12 @@ async def call_downstream(
             break
         if budget is not None and not budget.try_retry():
             RETRIES_DENIED.labels(hop).inc()
+            trace.get_current_span().add_event("retry refused", {"reason": "budget"})
             break
         if backoff_s > 0:
-            await sleep(retry_wait(attempt, backoff_s, random.random()))
+            wait = retry_wait(attempt, backoff_s, random.random())
+            with tracer.start_as_current_span("backoff") as span:
+                span.set_attribute("chaosnet.wait_s", wait)
+                await sleep(wait)
 
     raise DownstreamError(code, hop)

@@ -23,6 +23,7 @@ from typing import Any
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
+from opentelemetry import trace
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
 
 from chaosnet_lab.breaker import Breaker
@@ -120,6 +121,7 @@ async def call(client: httpx.AsyncClient, hop: Hop) -> dict[str, Any] | Response
         return await call_once(client, hop)
     if not hop.breaker.allow():
         ATTEMPTS.labels(hop.name, "rejected").inc()
+        trace.get_current_span().add_event("circuit open", {"chaosnet.hop": hop.name})
         return JSONResponse({"error": "circuit_open", "failed_hop": hop.name}, 503)
     answer: dict[str, Any] | Response = Response(status_code=500)  # if call_once raises
     try:
