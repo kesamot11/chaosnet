@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
+from opentelemetry import trace
 from prometheus_client import Counter
 
 from chaosnet_lab.budget import RetryBudget
@@ -13,6 +14,9 @@ from chaosnet_lab.budget import RetryBudget
 # Counted by the caller, so attempts to a service that hangs are counted too (#116).
 ATTEMPTS = Counter("lab_attempts", "Attempts to call another service", ["hop", "outcome"])
 RETRIES_DENIED = Counter("lab_retries_denied", "Retries the retry budget refused", ["hop"])
+
+# Spans for every attempt (#158); a no-op unless tracing is set up (tracing.py).
+tracer = trace.get_tracer("chaosnet_lab.client")
 
 
 def retry_wait(attempt: int, backoff_s: float, rand: float) -> float:
@@ -71,6 +75,8 @@ async def call_downstream(
     if budget is not None:
         budget.first_attempt()
     for attempt in range(max_retries + 1):
+        # Tomáš, #158: one span per attempt, named "attempt <n>" (from 1), with the
+        # attributes chaosnet.attempt (n) and chaosnet.outcome (as in ATTEMPTS below)
         try:
             res = await client.request(method, url, json=json, timeout=timeout_s)
             ATTEMPTS.labels(hop, "http_error" if res.is_error else "ok").inc()
