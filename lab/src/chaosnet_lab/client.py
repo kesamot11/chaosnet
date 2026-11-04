@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import httpx
+from opentelemetry import trace
 from prometheus_client import Counter
 
 from chaosnet_lab.budget import RetryBudget
@@ -13,6 +14,9 @@ from chaosnet_lab.budget import RetryBudget
 # Counted by the caller, so attempts to a service that hangs are counted too (#116).
 ATTEMPTS = Counter("lab_attempts", "Attempts to call another service", ["hop", "outcome"])
 RETRIES_DENIED = Counter("lab_retries_denied", "Retries the retry budget refused", ["hop"])
+
+# Spans for every attempt (#158); a no-op unless tracing is set up (tracing.py).
+tracer = trace.get_tracer("chaosnet_lab.client")
 
 
 def retry_wait(attempt: int, backoff_s: float, rand: float) -> float:
@@ -71,26 +75,33 @@ async def call_downstream(
     if budget is not None:
         budget.first_attempt()
     for attempt in range(max_retries + 1):
-        try:
-            res = await client.request(method, url, json=json, timeout=timeout_s)
-            ATTEMPTS.labels(hop, "http_error" if res.is_error else "ok").inc()
-            return res
-        except httpx.ConnectError:
-            ATTEMPTS.labels(hop, "connection_error").inc()
-            code = 503
-        except httpx.ReadError, httpx.RemoteProtocolError:
-            ATTEMPTS.labels(hop, "connection_error").inc()
-            code = 503
-            if method != "GET":
-                break
-        except httpx.ConnectTimeout:
-            ATTEMPTS.labels(hop, "timeout").inc()
-            code = 504
-        except httpx.TimeoutException:
-            ATTEMPTS.labels(hop, "timeout").inc()
-            code = 504
-            if method != "GET":
-                break
+        with tracer.start_as_current_span(f"attempt {attempt + 1}") as span:
+            span.set_attribute("chaosnet.attempt", attempt + 1)
+            try:
+                res = await client.request(method, url, json=json, timeout=timeout_s)
+                ATTEMPTS.labels(hop, "http_error" if res.is_error else "ok").inc()
+                span.set_attribute("chaosnet.outcome", "http_error" if res.is_error else "ok")
+                return res
+            except httpx.ConnectError:
+                ATTEMPTS.labels(hop, "connection_error").inc()
+                span.set_attribute("chaosnet.outcome", "connection_error")
+                code = 503
+            except httpx.ReadError, httpx.RemoteProtocolError:
+                ATTEMPTS.labels(hop, "connection_error").inc()
+                span.set_attribute("chaosnet.outcome", "connection_error")
+                code = 503
+                if method != "GET":
+                    break
+            except httpx.ConnectTimeout:
+                ATTEMPTS.labels(hop, "timeout").inc()
+                span.set_attribute("chaosnet.outcome", "timeout")
+                code = 504
+            except httpx.TimeoutException:
+                ATTEMPTS.labels(hop, "timeout").inc()
+                span.set_attribute("chaosnet.outcome", "timeout")
+                code = 504
+                if method != "GET":
+                    break
         if attempt == max_retries:
             break
         if budget is not None and not budget.try_retry():
