@@ -528,3 +528,31 @@ than predicted.
   outage). In calm times nothing changes: the bucket is full.
 - Method note: restarting a service resets its Prometheus counters; take the "before"
   snapshot only after the new process has been scraped, or use `increase()`.
+
+## EXP-008: what traces show for A, B and an open breaker (#160)
+
+**Question:** with inventory paused, what does the trace of one request look like in
+EXP-004's configurations A and B, and with the breaker on orders → inventory open?
+
+**Setup:** the lab with tracing (#157) and spans per attempt, backoff spans and refusal
+events (#158). One request per configuration.
+
+**Prediction (Tomáš, 2026-11-04, before any measurement, translated from Czech):**
+
+- **A** (gateway 2.0 s, 1 retry; orders → inventory 0.5 s, 2 retries): **one gateway
+  attempt** (`http_error`: the 504 from orders is an answer), under it orders with
+  **three attempts of 0.5 s** (`timeout`); **1.5 s** in all; the inventory spans of the
+  abandoned attempts join the trace when inventory resumes. *How this came about:*
+  first 2 gateway attempts × 2 s and 6 attempts, 4 s (EXP-004's first answer again);
+  corrected after recalling that one attempt is 0.5 s and an answer is not retried.
+- **B** (gateway 1.0 s): **two gateway attempts of 1.0 s**, **2.0 s** in all; under
+  each, orders makes its three attempts. **The orders span of the first gateway attempt
+  ends at 1.5 s, after its parent** (1.0 s). *Corrected by Claude:* the gateway's
+  outcome is `timeout` (it gets no answer), not a 503; the user gets 504 naming
+  `gateway->orders`. *Claude's addition:* the second orders span (1.0 – 2.5 s) outlives
+  the whole request (2.0 s).
+- **Breaker open**: **no attempt** to inventory, `503 circuit_open` in **~20 ms**.
+  *Corrected by Claude:* the orders span carries the `circuit open` event (#158), the
+  only trace of why nothing was called. Tomáš's point first: with one request at low
+  traffic the breaker never opens (minimum of 10 calls in 10 s, #136), and the trace is
+  A's; so this case needs the breaker opened by load first.
