@@ -8,6 +8,9 @@ type Props = {
   onAbort: () => void;
 };
 
+// Jaeger's UI, published by the lab on this port (#157); a trace opens at /trace/<id>.
+export const JAEGER = "http://127.0.0.1:16686";
+
 const PHASES: Phase[] = ["baseline", "inject", "recover"];
 
 /** State, per-phase results and verdict of one experiment (#78); contract in the tests. */
