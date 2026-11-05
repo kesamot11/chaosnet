@@ -110,10 +110,17 @@ async def handle(request: Request) -> Response:
     # ponytail: waits for every callee even after one failed; cancel the rest if a slow
     # branch ever makes failures look slower than they are.
     answers = await asyncio.gather(*(call(state.client, hop) for hop in state.calls))
-    for answer in answers:
-        if isinstance(answer, Response):
-            return answer  # the first failed callee, in topology order
-    return JSONResponse({"service": state.name, "calls": answers})
+    results: list[dict[str, Any]] = []
+    for hop, answer in zip(state.calls, answers, strict=True):
+        if isinstance(answer, Response):  # this callee failed
+            if hop.fallback and answer.status_code >= 500:
+                FALLBACKS.labels(hop.name).inc()
+                trace.get_current_span().add_event("fallback", {"chaosnet.hop": hop.name})
+                results.append({"fallback": hop.name})
+                continue
+            return answer  # the first failure without a fallback, in topology order
+        results.append(answer)
+    return JSONResponse({"service": state.name, "calls": results})
 
 
 async def call(client: httpx.AsyncClient, hop: Hop) -> dict[str, Any] | Response:

@@ -193,8 +193,6 @@ def test_a_retry_budget_comes_from_the_config_and_is_off_by_default() -> None:
 
 # --- fallback on a link (#145, ADR-010) -------------------------------------------------
 
-TOMAS = pytest.mark.xfail(strict=True, reason="#145: the fallback in handle, Tomáš's part")
-
 
 def fallback_hop(name: str = "orders->inventory", url: str = "http://inventory") -> Hop:
     return Hop(name, url, timeout_s=0.5, max_retries=0, fallback=True)
@@ -220,7 +218,6 @@ async def failed_further_down(request: httpx.Request) -> httpx.Response:
     return httpx.Response(504, json={"error": "timeout", "failed_hop": "inventory->db"})
 
 
-@TOMAS
 @pytest.mark.parametrize(
     "downstream", [connection_refused, times_out, fails_with_500, failed_further_down]
 )
@@ -232,7 +229,6 @@ def test_a_failed_callee_is_left_out_and_the_request_succeeds(downstream: Handle
     assert fallbacks("orders->inventory") - before == 1
 
 
-@TOMAS
 def test_an_open_breaker_is_answered_with_the_fallback_too() -> None:
     hop = Hop("orders->inventory", "http://inventory", 0.5, 0, breaker=Breaker(), fallback=True)
     for _ in range(10):  # opens the breaker; every one of them is a fallback already
@@ -242,7 +238,6 @@ def test_an_open_breaker_is_answered_with_the_fallback_too() -> None:
     assert res.json()["calls"] == [{"fallback": "orders->inventory"}]
 
 
-@TOMAS
 def test_the_other_callees_answers_stay() -> None:
     async def payments_down(request: httpx.Request) -> httpx.Response:
         if request.url.host == "payments":
