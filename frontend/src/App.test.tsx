@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { App } from "./App";
 import type { Experiment, Topology } from "./api";
@@ -41,16 +41,26 @@ test("says when the controller is not reachable", async () => {
 });
 
 // After a refresh (#172): the controller's answers by "METHOD path"; a Promise answers later.
+// Returns, per request, the moment the UI has read the answer's body.
 function serve(answers: Record<string, unknown>) {
-  const reply = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+  const read: Record<string, Promise<unknown>> = {};
   vi.stubGlobal(
     "fetch",
     vi.fn((path: string, init?: RequestInit) => {
       const key = `${init?.method ?? "GET"} ${path}`;
       if (!(key in answers)) return Promise.reject(new TypeError(`no answer for ${key}`));
-      return Promise.resolve(answers[key]).then(reply);
+      return Promise.resolve(answers[key]).then((body) => {
+        const res = new Response(JSON.stringify(body), { status: 200 });
+        const json = res.json.bind(res);
+        res.json = () => {
+          read[key] = json();
+          return read[key];
+        };
+        return res;
+      });
     }),
   );
+  return read;
 }
 
 const DONE = recorded as Experiment; // completed, so the status view stops polling
@@ -77,7 +87,7 @@ test("with no experiments yet there is no status, just the lab", async () => {
 test("an experiment started before the list arrives is the one followed", async () => {
   let answerList: (list: Experiment[]) => void = () => {};
   const mine = { ...DONE, id: 7, name: "mine" };
-  serve({
+  const read = serve({
     "GET /api/topology": LAB,
     "GET /api/experiments": new Promise((resolve) => {
       answerList = resolve;
@@ -97,7 +107,11 @@ test("an experiment started before the list arrives is the one followed", async 
   expect(await screen.findByRole("heading", { name: /^mine: completed/ })).toBeInTheDocument();
 
   answerList([{ ...DONE, id: 6, name: "older" }]); // the list from before "mine" existed
-  await new Promise((r) => setTimeout(r, 50)); // let the late list be read and applied
+  // wait until the UI has read the late list, however long that takes, and applied it
+  await waitFor(() => expect(read["GET /api/experiments"]).toBeDefined());
+  await act(async () => {
+    await read["GET /api/experiments"];
+  });
   expect(screen.getByRole("heading", { name: /^mine: completed/ })).toBeInTheDocument();
   expect(fetch).not.toHaveBeenCalledWith("/api/experiments/6", expect.anything());
 });
