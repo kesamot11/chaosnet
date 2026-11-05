@@ -68,6 +68,7 @@ export type SecondSummary = {
   p50: number | null;
   p95: number | null;
   error_rate: number | null;
+  trace?: string | null; // the request to open in Jaeger (#173); missing before it
 };
 
 /** The record of one experiment (Experiment in backend/src/chaosnet/store.py), the fields the UI reads. */

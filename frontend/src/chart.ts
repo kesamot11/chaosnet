@@ -7,6 +7,7 @@ const PHASES: Phase[] = ["baseline", "inject", "recover"];
 export type Timeline = {
   p95: (number | null)[]; // one value per second of the whole experiment
   errorRate: (number | null)[];
+  traces: (string | null)[]; // the trace to open for each second (#173)
   phaseStarts: number[]; // the second where each phase starts: [0, baseline, baseline + inject]
 };
 
@@ -17,7 +18,7 @@ export type Timeline = {
  * is null.
  */
 export function timeline(experiment: Experiment): Timeline {
-  const result: Timeline = { p95: [], errorRate: [], phaseStarts: [] };
+  const result: Timeline = { p95: [], errorRate: [], traces: [], phaseStarts: [] };
   for (const phase of PHASES) {
     result.phaseStarts.push(result.p95.length);
     const seconds = Math.ceil(experiment.spec.phases_s[phase]);
@@ -26,6 +27,7 @@ export function timeline(experiment: Experiment): Timeline {
       const point = series[s];
       result.p95.push(point?.p95 ?? null);
       result.errorRate.push(point?.error_rate ?? null);
+      result.traces.push(point?.trace ?? null);
     }
   }
   return result;
