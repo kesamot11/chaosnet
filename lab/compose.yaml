@@ -137,7 +137,7 @@
       },
       "environment": {
         "SERVICE_NAME": "gateway",
-        "CALLS": "[{\"hop\": \"gateway->orders\", \"url\": \"http://toxiproxy:8665\", \"timeout_s\": 2.0, \"max_retries\": 1, \"backoff_s\": 0.0, \"breaker\": false, \"retry_budget\": null}]",
+        "CALLS": "[{\"hop\": \"gateway->orders\", \"url\": \"http://toxiproxy:8665\", \"timeout_s\": 2.0, \"max_retries\": 1, \"backoff_s\": 0.0, \"breaker\": false, \"retry_budget\": null, \"fallback\": false}]",
         "OTEL_EXPORTER_OTLP_ENDPOINT": "${LAB_TRACING_ENDPOINT-http://jaeger:4318}",
         "OTEL_BSP_SCHEDULE_DELAY": "500"
       },
@@ -179,7 +179,7 @@
       },
       "environment": {
         "SERVICE_NAME": "orders",
-        "CALLS": "[{\"hop\": \"orders->inventory\", \"url\": \"http://toxiproxy:8666\", \"timeout_s\": 0.5, \"max_retries\": 2, \"backoff_s\": 0.0, \"breaker\": false, \"retry_budget\": null}]",
+        "CALLS": "[{\"hop\": \"orders->inventory\", \"url\": \"http://toxiproxy:8666\", \"timeout_s\": 0.5, \"max_retries\": 2, \"backoff_s\": 0.0, \"breaker\": false, \"retry_budget\": null, \"fallback\": false}]",
         "OTEL_EXPORTER_OTLP_ENDPOINT": "${LAB_TRACING_ENDPOINT-http://jaeger:4318}",
         "OTEL_BSP_SCHEDULE_DELAY": "500"
       },

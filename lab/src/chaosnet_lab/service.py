@@ -33,6 +33,8 @@ from chaosnet_lab.tracing import setup_tracing
 
 # Counted by the service itself; a service that hangs counts nothing (#116, see client.py).
 REQUESTS = Counter("lab_requests", "Requests this service received", ["service"])
+# Answers given without a failed callee (ADR-010), counted at the caller.
+FALLBACKS = Counter("lab_fallbacks", "Callee failures answered with a fallback", ["hop"])
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,7 @@ class Hop:
     backoff_s: float = 0.0  # see client.retry_wait
     breaker: Breaker | None = field(default=None, compare=False)  # one per link (ADR-008)
     budget: RetryBudget | None = field(default=None, compare=False)  # one per link (#138)
+    fallback: bool = False  # answer without this callee when it fails (ADR-010)
 
     @classmethod
     def parse(cls, raw: dict[str, Any]) -> Hop:
@@ -64,7 +67,10 @@ class Hop:
         breaker = Breaker() if raw.get("breaker", False) else None
         ratio = raw.get("retry_budget")
         budget = RetryBudget(ratio=float(ratio)) if ratio is not None else None
-        return cls(str(raw["hop"]), url, timeout_s, max_retries, backoff_s, breaker, budget)
+        fallback = bool(raw.get("fallback", False))
+        return cls(
+            str(raw["hop"]), url, timeout_s, max_retries, backoff_s, breaker, budget, fallback
+        )
 
 
 def calls_from_env() -> list[Hop]:
