@@ -682,3 +682,61 @@ fallback (ADR-010), with and without a circuit breaker?
   had taken the breaker to be open from the start, because the setup didn't say;
   EXP-008 opened it with load first. The setup now says it starts closed. Claude
   turned 10 calls plus 4 trials of 3 attempts each into ~40 attempts.
+
+**Setup:** lab at `3f7cdbf` (main with #180 and #181), default topology with orders →
+inventory changed per configuration; services recreated for each one (fresh counters,
+breaker closed). 2026-11-05 16:00–16:02 UTC, after the prediction PR (#182) was merged.
+
+**Method:** `experiments/exp010.py`. For each configuration:
+
+- generate the lab from a variant of `lab/topology.json` and recreate it,
+- pause inventory and run 20 s of load at 20 req/s,
+- unpause inventory and read orders' counters for orders → inventory inside the
+  container.
+
+At the end the default lab is generated and started again.
+
+*Discarded:* the first run read the counters from Prometheus as "after minus before".
+After the services were recreated, Prometheus still returned the old container's
+samples, so the differences were wrong (e.g. −1 074 timeouts). Its load generator
+numbers agreed with the run below.
+
+**Results** (400 requests each):
+
+| | `ok` | `degraded` | errors | p50 | p95 | attempts on inventory | fallbacks |
+|---|---|---|---|---|---|---|---|
+| A | 0 | 0 | 400 (`http_5xx`) | 1 522.7 ms | 1 534.2 ms | 1 200 `timeout` | 0 |
+| B | 0 | 400 | 0 | 1 522.5 ms | 1 534.5 ms | 1 200 `timeout` | 400 |
+| C | 0 | 400 | 0 | **9.0 ms** | 1 524.3 ms | **126** `timeout`, 358 `rejected` | 400 |
+
+In C the per-second p50 was about 1 523 ms in seconds 0 and 1, and 6–11 ms from
+second 2 on.
+
+**Predictions:**
+
+- **A and B correct.**
+- **C's latency correct** (~10 ms predicted, 9.0 ms measured).
+- **C's attempts wrong:** ~40 predicted, 126 measured, which is 42 calls of 3 attempts.
+
+**Findings:**
+
+- **A fallback saves requests; it does not make them faster.**
+  - In B every request got an answer, but after the same 1.5 s as in A: orders still
+    waits for three attempts of 0.5 s.
+  - The load on inventory is the same 1 200 attempts.
+- **Fallback and breaker complement each other.**
+  - The breaker makes the failure fast; the fallback makes it an answer.
+  - Together, 400 requests were answered and 9 ms was the median wait, and inventory
+    saw 126 attempts instead of 1 200.
+- **`degraded` keeps the outage visible.**
+  - B and C have 0 % errors; counted as `ok`, the outage would be invisible.
+  - The 400 `degraded` answers and the 400 fallbacks show that inventory was down the
+    whole time.
+- **Why ~40 calls, not 10, before the breaker opened** (Tomáš's explanation, completed
+  by Claude):
+  - A call counts for the breaker only once it has finished, after 3 × 0.5 s = 1.5 s.
+  - The tenth failure is recorded about 2 s into the run. By then about 40 calls had
+    already started at 20 req/s.
+  - Then one trial call every 5 s.
+  - It is the same 126 attempts as EXP-006: the initial flood a breaker cannot stop
+    (Sprint 6), now seen per second.
