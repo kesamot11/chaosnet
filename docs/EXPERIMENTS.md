@@ -640,3 +640,45 @@ ranges do not overlap (slowest off 6.48 ms, fastest on 7.11 ms).
   production, with sampling (a trace for only some of the requests) where it matters.
 - Not separated here: the share of the instrumentation vs. the attempt spans, and the
   background export's CPU.
+
+## EXP-010: does a fallback save requests without hiding the outage? (#177)
+
+**Question:** with inventory paused, what do users get when orders → inventory has a
+fallback (ADR-010), with and without a circuit breaker?
+
+**Setup:**
+
+- Inventory paused (`docker pause`): the connection opens, but no answer ever comes.
+- gateway → orders: 2.0 s, 1 retry.
+- orders → inventory: 0.5 s, 2 retries, no backoff.
+- 20 req/s for 20 s: 400 requests.
+- The breaker starts closed. It opens above 50 % failures in 10 s, with at least 10
+  calls.
+
+| Configuration | fallback | breaker |
+|---|---|---|
+| A | no | no |
+| B | yes | no |
+| C | yes | yes |
+
+**Prediction (Tomáš, 2026-11-05, before any measurement, translated from Czech):**
+
+| | `ok` | `degraded` | errors | median latency | attempts on inventory |
+|---|---|---|---|---|---|
+| A | 0 | 0 | all 400 | 1.5 s | 60/s, **1 200** |
+| B | 0 | all 400 | 0 | 1.5 s | 60/s, **1 200** |
+| C | 0 | all 400 | 0 | **~10 ms** | ~10 calls before it opens, then 1 trial every 5 s: **~40** |
+
+*How this came about:*
+
+- **A and B** were the first answers. A is EXP-004/EXP-006 again. In B the fallback
+  saves every request but does not make it faster: orders still waits for three
+  attempts of 0.5 s before it answers without inventory.
+- **C's latency:** first "the same as B". Changed to ~10 ms after Claude asked what an
+  open breaker does with the requests after the first failures (EXP-006: it answers at
+  once).
+- **C's attempts:** first "0/s". Claude then asked how many calls start before the
+  breaker sees its first failure. Tomáš answered 10 calls plus one trial every 5 s. He
+  had taken the breaker to be open from the start, because the setup didn't say;
+  EXP-008 opened it with load first. The setup now says it starts closed. Claude
+  turned 10 calls plus 4 trials of 3 attempts each into ~40 attempts.
