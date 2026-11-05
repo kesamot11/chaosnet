@@ -33,6 +33,14 @@ class Sample:
     outcome: Outcome
     trace_id: str | None = None  # the trace this request started (#159); None if dropped
 
+def has_fallback(body: dict[str, Any]) -> bool:
+    """True when a fallback answered anywhere in the tree of calls (ADR-010)."""
+    if "fallback" in body:
+        return True
+    for call in body.get("calls", []):
+        if has_fallback(call):
+            return True
+    return False
 
 async def run_load(
     client: httpx.AsyncClient,
