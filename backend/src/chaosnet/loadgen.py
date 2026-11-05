@@ -196,16 +196,25 @@ def per_second(samples: list[Sample]) -> list[dict[str, Any]]:
     for i in range(max(samples_second) + 1):
         group = samples_second[i]
         if len(group) == 0:
-            res.append({"second": i, "p50": None, "p95": None, "error_rate": None})
+            res.append({"second": i, "p50": None, "p95": None, "error_rate": None, "trace": None})
             continue
         latencies = [s.latency_s * 1000 for s in group if s.outcome != "dropped"]
         if len(latencies) == 0:
-            res.append({"second": i, "p50": None, "p95": None, "error_rate": 1.0})
+            res.append({"second": i, "p50": None, "p95": None, "error_rate": 1.0, "trace": None})
             continue
         p50 = round(percentile(latencies, 50), 2)
         p95 = round(percentile(latencies, 95), 2)
         err_rate = len([g for g in group if is_error(g.outcome)]) / len(group)
-        res.append({"second": i, "p50": p50, "p95": p95, "error_rate": err_rate})
+        traced = [s for s in group if s.trace_id is not None]
+        filtered = [s for s in traced if s.outcome != "ok"]
+        filtered2 = [s for s in filtered if s.outcome != "degraded"]
+        if len(filtered2) > 0:
+            worst_id = max(filtered2, key=lambda s: s.latency_s).trace_id
+        elif len(filtered) > 0:
+            worst_id = max(filtered, key=lambda s: s.latency_s).trace_id
+        else:
+            worst_id = max(traced, key=lambda s: s.latency_s).trace_id
+        res.append({"second": i, "p50": p50, "p95": p95, "error_rate": err_rate, "trace": worst_id})
     return res
 
 
