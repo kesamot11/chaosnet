@@ -1,5 +1,8 @@
 /** Types and calls for the controller API (backend/src/chaosnet/api.py), via the /api proxy. */
 
+// Jaeger's UI, published by the lab on this port (#157); a trace opens at /trace/<id>.
+export const JAEGER = "http://127.0.0.1:16686";
+
 export type Service = { name: string; port: number | null };
 
 export type Link = {
@@ -68,6 +71,7 @@ export type SecondSummary = {
   p50: number | null;
   p95: number | null;
   error_rate: number | null;
+  trace?: string | null; // the request to open in Jaeger (#173); missing before it
 };
 
 /** The record of one experiment (Experiment in backend/src/chaosnet/store.py), the fields the UI reads. */

@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { expect, test } from "vitest";
-import type { Experiment } from "./api";
+import { type Experiment, JAEGER } from "./api";
 import recorded from "./fixtures/latency-200ms.json";
 import { LatencyChart } from "./LatencyChart";
 
@@ -42,4 +42,32 @@ test("a phase not measured yet leaves its part of the chart empty", () => {
   render(<LatencyChart experiment={running} />);
   const line = screen.getByRole("img", { name: "p95 latency" }).querySelector("polyline");
   expect(line?.getAttribute("points")?.split(" ")).toHaveLength(5); // the 5 baseline seconds
+});
+
+test("a dot per second links to its trace in Jaeger; no trace, no dot (#173)", () => {
+  const baseline = EXPERIMENT.results.baseline;
+  if (baseline === undefined) throw new Error("the recording has a baseline");
+  const traced: Experiment = {
+    ...EXPERIMENT,
+    results: {
+      baseline: {
+        ...baseline,
+        per_second: baseline.per_second.map((p, s) => ({
+          ...p,
+          trace: s === 0 ? null : `trace-${s}`,
+        })),
+      },
+    },
+  };
+  render(<LatencyChart experiment={traced} />);
+  const p95 = screen.getByRole("img", { name: "p95 latency" });
+  const links = [...p95.querySelectorAll("a")].map((a) => a.getAttribute("href"));
+  expect(links).toEqual([1, 2, 3, 4].map((s) => `${JAEGER}/trace/trace-${s}`));
+});
+
+test("a record from before #173 has no trace per second, so no dots", () => {
+  // the recording is such a record: its per_second entries have no `trace` key
+  expect(EXPERIMENT.results.baseline?.per_second[0]).not.toHaveProperty("trace");
+  render(<LatencyChart experiment={EXPERIMENT} />);
+  expect(screen.getByRole("img", { name: "p95 latency" }).querySelectorAll("a")).toHaveLength(0);
 });

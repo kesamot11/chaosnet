@@ -92,6 +92,7 @@ describe("timeline", () => {
     expect(t.p95).toEqual([10, 11, 210, 220, null, 12, 13]);
     expect(t.errorRate).toEqual([0, 0, 0.1, 0, null, 0, 0]);
     expect(t.phaseStarts).toEqual([0, 2, 5]);
+    expect(t.traces).toEqual([null, null, null, null, null, null, null]); // recorded before #173
   });
 
   it("a phase not measured yet is empty seconds, so the graph keeps its width", () => {

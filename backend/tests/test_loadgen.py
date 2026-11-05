@@ -142,37 +142,51 @@ def test_per_second_groups_requests_by_the_second_they_were_sent() -> None:
         Sample(1.7, 0.0, 0.050, "ok"),
     ]
     assert per_second(samples) == [
-        {"second": 0, "p50": 10.0, "p95": 10.0, "error_rate": 0.0},
-        {"second": 1, "p50": 30.0, "p95": 50.0, "error_rate": 0.0},
+        {"second": 0, "p50": 10.0, "p95": 10.0, "error_rate": 0.0, "trace": None},
+        {"second": 1, "p50": 30.0, "p95": 50.0, "error_rate": 0.0, "trace": None},
     ]
 
 
 def test_per_second_a_slow_answer_stays_in_the_second_it_was_sent() -> None:
     # sent at 0.5, answered at 5.5: the graph must show it at 0, where the user waited
     assert per_second([Sample(0.5, 0.0, 5.0, "timeout")]) == [
-        {"second": 0, "p50": 5000.0, "p95": 5000.0, "error_rate": 1.0},
+        {"second": 0, "p50": 5000.0, "p95": 5000.0, "error_rate": 1.0, "trace": None},
     ]
 
 
 def test_per_second_a_second_without_requests_is_a_gap_not_left_out() -> None:
     samples = [Sample(0.0, 0.0, 0.010, "ok"), Sample(2.0, 0.0, 0.010, "ok")]
-    assert per_second(samples)[1] == {"second": 1, "p50": None, "p95": None, "error_rate": None}
+    assert per_second(samples)[1] == {
+        "second": 1,
+        "p50": None,
+        "p95": None,
+        "error_rate": None,
+        "trace": None,
+    }
     assert len(per_second(samples)) == 3
 
 
 def test_per_second_failures_have_latency_too() -> None:
     samples = [Sample(0.1, 0.0, 0.002, "connection_error"), Sample(0.2, 0.0, 0.004, "http_5xx")]
     assert per_second(samples) == [
-        {"second": 0, "p50": 2.0, "p95": 4.0, "error_rate": 1.0},
+        {"second": 0, "p50": 2.0, "p95": 4.0, "error_rate": 1.0, "trace": None},
     ]
 
 
 def test_per_second_dropped_requests_are_errors_without_latency() -> None:
     # never sent, so no latency, but a user was scheduled and got nothing
     samples = [Sample(0.1, 0.0, 0.010, "ok"), Sample(0.2, 0.3, 0.0, "dropped")]
-    assert per_second(samples)[0] == {"second": 0, "p50": 10.0, "p95": 10.0, "error_rate": 0.5}
+    assert per_second(samples)[0] == {
+        "second": 0,
+        "p50": 10.0,
+        "p95": 10.0,
+        "error_rate": 0.5,
+        "trace": None,
+    }
     only_dropped = per_second([Sample(0.2, 0.3, 0.0, "dropped")])
-    assert only_dropped == [{"second": 0, "p50": None, "p95": None, "error_rate": 1.0}]
+    assert only_dropped == [
+        {"second": 0, "p50": None, "p95": None, "error_rate": 1.0, "trace": None}
+    ]
 
 
 def test_per_second_a_request_at_exactly_3_0_belongs_to_second_3() -> None:
@@ -191,7 +205,9 @@ def test_per_second_of_nothing_is_empty() -> None:
 
 def test_summary_contains_the_series() -> None:
     report = summarize([Sample(0.1, 0.0, 0.010, "ok")], rate=1, duration_s=1)
-    assert report["per_second"] == [{"second": 0, "p50": 10.0, "p95": 10.0, "error_rate": 0.0}]
+    assert report["per_second"] == [
+        {"second": 0, "p50": 10.0, "p95": 10.0, "error_rate": 0.0, "trace": None}
+    ]
 
 
 # --- example_trace (#159) ---------------------------------------------------------------
@@ -305,3 +321,24 @@ def test_per_second_degraded_is_not_an_error() -> None:
         Sample(0.4, 0.0, 0.01, "ok"),
     ]
     assert per_second(samples)[0]["error_rate"] == 0.25
+
+
+def test_per_second_each_second_links_its_worst_request() -> None:
+    """The same rule as example_trace, per second (#173, Tomáš 2026-11-05)."""
+    samples = [
+        Sample(0.1, 0.0, 0.900, "ok", "slow-ok"),
+        Sample(0.2, 0.0, 0.500, "timeout", "the-error"),
+        Sample(0.3, 0.0, 0.950, "degraded", "slow-degraded"),
+        Sample(1.1, 0.0, 0.900, "ok", "slow-ok-1"),
+        Sample(1.2, 0.0, 0.200, "degraded", "degraded-1"),
+        Sample(2.1, 0.0, 0.900, "ok", "slowest-2"),
+        Sample(2.2, 0.0, 0.200, "ok", "fast-2"),
+        Sample(3.1, 0.0, 0.0, "dropped"),  # no trace: never chosen
+        Sample(3.2, 0.0, 0.200, "ok", "sent-3"),
+    ]
+    assert [s["trace"] for s in per_second(samples)] == [
+        "the-error",
+        "degraded-1",
+        "slowest-2",
+        "sent-3",
+    ]

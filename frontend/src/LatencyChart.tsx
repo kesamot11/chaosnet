@@ -1,4 +1,4 @@
-import type { Experiment } from "./api";
+import { type Experiment, JAEGER } from "./api";
 import { segments, timeline, toPoints } from "./chart";
 
 const WIDTH = 600;
@@ -11,10 +11,11 @@ type ChartProps = {
   max: number; // the value at the top of the chart
   format: (value: number) => string;
   phaseStarts: number[];
+  traces: (string | null)[]; // a dot per second that has one, linking to Jaeger (#173)
 };
 
 /** One quantity over the whole experiment; a second without data is a gap (#79). */
-function Chart({ label, values, max, format, phaseStarts }: ChartProps) {
+function Chart({ label, values, max, format, phaseStarts, traces }: ChartProps) {
   // The phases are three separate load runs: a line across a border would rise before
   // the fault starts. So each phase gets its own lines, the rest of the axis masked out.
   const lines = phaseStarts.flatMap((start, i) => {
@@ -52,6 +53,22 @@ function Chart({ label, values, max, format, phaseStarts }: ChartProps) {
             </text>
           </g>
         ))}
+        {values.map((v, s) => {
+          const trace = traces[s];
+          if (v === null || !trace) {
+            return null;
+          }
+          const y = max === 0 ? HEIGHT : HEIGHT - (v / max) * HEIGHT; // as in segments
+          return (
+            <a key={trace} href={`${JAEGER}/trace/${trace}`} target="_blank" rel="noreferrer">
+              <circle cx={s * step} cy={y} r={4} fill="#d6336c">
+                <title>
+                  second {s}: {format(v)}, open the trace
+                </title>
+              </circle>
+            </a>
+          );
+        })}
         {lines.map((line) => (
           // a line never starts twice at the same x, so its first x is a stable key
           <g key={line[0]?.x}>
@@ -79,6 +96,7 @@ export function LatencyChart({ experiment }: { experiment: Experiment }) {
         max={measured.length > 0 ? Math.max(...measured) : 0}
         format={(v) => `${v.toFixed(1)} ms`}
         phaseStarts={t.phaseStarts}
+        traces={t.traces}
       />
       <Chart
         label="error rate"
@@ -86,6 +104,7 @@ export function LatencyChart({ experiment }: { experiment: Experiment }) {
         max={1}
         format={(v) => `${(v * 100).toFixed(0)} %`}
         phaseStarts={t.phaseStarts}
+        traces={t.traces}
       />
     </section>
   );
