@@ -559,3 +559,56 @@ refusals are visible.
 | 3 | the trace ID in the JSON body | no body on GET; couples tracing to the payload |
 | 2 | tracing by hand (own IDs, own log) | the standard is what is used in practice |
 | 1 | the fallback first | it would be harder to show working without traces |
+
+## ADR-010: Fallback by leaving the missing part out, counted as degraded
+
+- **Status:** Accepted
+- **Date:** 2026-11-05 (Sprint 8 planning)
+- **Issues:** #145, #175–#178
+- **Decided by:** Tomáš; reasons below are his, recorded from the discussion
+
+### Context
+
+EXP-006 showed that a breaker decides *how* a call fails, not whether the request
+succeeds: with inventory down, all 400 requests still failed. A fallback answers in
+place of the missing dependency.
+
+### Decisions
+
+**1. Leave the missing part out.** When orders cannot get an answer from inventory, it
+answers anyway, without inventory's part ("availability unknown"). *Reason:* a stale
+answer from a cache could sell goods that are gone.
+
+**2. The note travels in the body:** `{"fallback": "<hop>"}` in place of the callee's
+answer in `calls`. *Reason:* every service already embeds its callees' bodies, so the
+note reaches the user with no extra code; a header would be dropped by the next service
+unless every service copied it.
+
+**3. When:** on `timeout`, `connection_error`, `503 circuit_open` and a callee's 5xx
+(the breaker's definition of a failure, ADR-008). **Never on 404:** "this item does not
+exist" is an answer, not an outage; turning it into "availability unknown" would lie
+to the user. Same rule as for retries.
+
+**4. Counted as `degraded`**, a third outcome next to `ok` and the errors. *Reason:*
+as `ok`, the outage disappears from the numbers (0 % errors, verdict passed while
+inventory is down); as an error, the numbers cannot show that the fallback saved the
+requests. As `degraded`, they show both.
+
+**5. Roadmap:**
+
+| Sprint | Goal |
+|---|---|
+| 8 | fallback and EXP-010; finish M5 (#172, #173); v0.3.0 |
+| 9 | drag-and-drop topology editor |
+| 10 | a polished UI |
+| then | the public replay demo (ADR-002) |
+
+### Alternatives rejected
+
+| Decision | Rejected | Why |
+|---|---|---|
+| 1 | the last known answer (cache) | stale stock; sells what is gone |
+| 1 | accept now, check later | needs writes, a queue and a worker; the lab's calls are reads only (GET). Realistic for placing orders, kept as an idea |
+| 2 | a header (`X-Degraded`) | every service would have to copy it to its own response |
+| 4 | count it as `ok` | hides the outage |
+| 4 | count it as an error | hides that the fallback worked |
