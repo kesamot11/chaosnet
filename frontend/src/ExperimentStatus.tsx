@@ -1,4 +1,4 @@
-import { END_STATES, type Experiment, type Phase } from "./api";
+import { END_STATES, type Experiment, JAEGER, type Phase } from "./api";
 import { phaseProgress, recall } from "./progress";
 import { degradedRate, errorRate } from "./results";
 
@@ -7,9 +7,6 @@ type Props = {
   unreachable: boolean; // the last poll got no answer; `experiment` is the last known state
   onAbort: () => void;
 };
-
-// Jaeger's UI, published by the lab on this port (#157); a trace opens at /trace/<id>.
-export const JAEGER = "http://127.0.0.1:16686";
 
 const PHASES: Phase[] = ["baseline", "inject", "recover"];
 

@@ -1,7 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { expect, test } from "vitest";
-import type { Experiment } from "./api";
-import { JAEGER } from "./ExperimentStatus";
+import { type Experiment, JAEGER } from "./api";
 import recorded from "./fixtures/latency-200ms.json";
 import { LatencyChart } from "./LatencyChart";
 
@@ -64,4 +63,11 @@ test("a dot per second links to its trace in Jaeger; no trace, no dot (#173)", (
   const p95 = screen.getByRole("img", { name: "p95 latency" });
   const links = [...p95.querySelectorAll("a")].map((a) => a.getAttribute("href"));
   expect(links).toEqual([1, 2, 3, 4].map((s) => `${JAEGER}/trace/trace-${s}`));
+});
+
+test("a record from before #173 has no trace per second, so no dots", () => {
+  // the recording is such a record: its per_second entries have no `trace` key
+  expect(EXPERIMENT.results.baseline?.per_second[0]).not.toHaveProperty("trace");
+  render(<LatencyChart experiment={EXPERIMENT} />);
+  expect(screen.getByRole("img", { name: "p95 latency" }).querySelectorAll("a")).toHaveLength(0);
 });

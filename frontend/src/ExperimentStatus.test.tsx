@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import type { Experiment, PhaseSummary } from "./api";
-import { ExperimentStatus, JAEGER } from "./ExperimentStatus";
+import { type Experiment, JAEGER, type PhaseSummary } from "./api";
+import { ExperimentStatus } from "./ExperimentStatus";
 import { remember } from "./progress";
 
 function measured(p50: number, p95: number, ok: number, failed = 0): PhaseSummary {

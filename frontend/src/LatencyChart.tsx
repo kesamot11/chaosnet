@@ -1,6 +1,5 @@
-import type { Experiment } from "./api";
+import { type Experiment, JAEGER } from "./api";
 import { segments, timeline, toPoints } from "./chart";
-import { JAEGER } from "./ExperimentStatus";
 
 const WIDTH = 600;
 const HEIGHT = 120;
