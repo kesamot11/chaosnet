@@ -96,6 +96,13 @@ export function abortExperiment(id: number): Promise<Answer> {
   return post(`/api/experiments/${id}/abort`);
 }
 
+/** Every experiment, newest first (#172). */
+export async function fetchExperiments(signal?: AbortSignal): Promise<Experiment[]> {
+  const res = await fetch(`/api/experiments`, { signal });
+  if (!res.ok) throw new Error(`GET /experiments failed: HTTP ${res.status}`);
+  return (await res.json()) as Experiment[];
+}
+
 /** One poll of #78; throws when there is no answer, the caller decides when to try again. */
 export async function fetchExperiment(id: number, signal?: AbortSignal): Promise<Experiment> {
   const res = await fetch(`/api/experiments/${id}`, { signal });

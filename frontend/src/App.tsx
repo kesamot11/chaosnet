@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { abortExperiment, fetchTopology, type Topology } from "./api";
+import { abortExperiment, fetchExperiments, fetchTopology, type Topology } from "./api";
 import { ExperimentForm } from "./ExperimentForm";
 import { ExperimentStatus } from "./ExperimentStatus";
 import { LatencyChart } from "./LatencyChart";
@@ -22,6 +22,19 @@ export function App() {
         if (!request.signal.aborted) setError(e instanceof Error ? e.message : String(e));
       });
     return () => request.abort(); // the component went away: stop the request
+  }, []);
+
+  // After a refresh: follow the newest experiment, running or the last one (#172).
+  useEffect(() => {
+    const request = new AbortController();
+    fetchExperiments(request.signal)
+      .then((list) => {
+        const newest = list[0]; // undefined when there are no experiments yet
+        if (newest === undefined) return;
+        setExperimentId((current) => current ?? newest.id);
+      })
+      .catch(() => {}); // no list: just the form; the topology request already reports a lost controller
+    return () => request.abort();
   }, []);
 
   return (
