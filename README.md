@@ -58,7 +58,9 @@ Set `ENTRY_PORT` if 8080 is taken.
 A link can also have `"backoff_s"` (wait before a retry, doubled each time, with jitter)
 and `"breaker": true` (a circuit breaker at the caller: above 50 % failures in 10 s,
 with at least 10 calls, it answers `503 circuit_open` at once for 5 s, then lets one
-trial call through; ADR-008). The generator warns when a link times out before the
+trial call through; ADR-008) and `"fallback": true` (when the callee fails, the caller
+answers without it, with `{"fallback": "<hop>"}` in its place; never on a 4xx; ADR-010).
+The generator warns when a link times out before the
 service it calls may answer.
 
 Prometheus counts the requests every service received (`lab_requests_total`) and every

@@ -189,3 +189,87 @@ def test_a_retry_budget_comes_from_the_config_and_is_off_by_default() -> None:
     assert Hop.parse(VALID).budget is None
     budget = Hop.parse({**VALID, "retry_budget": 0.1}).budget
     assert isinstance(budget, RetryBudget) and budget.ratio == 0.1
+
+
+# --- fallback on a link (#145, ADR-010) -------------------------------------------------
+
+
+def fallback_hop(name: str = "orders->inventory", url: str = "http://inventory") -> Hop:
+    return Hop(name, url, timeout_s=0.5, max_retries=0, fallback=True)
+
+
+def fallbacks(hop: str) -> float:
+    return REGISTRY.get_sample_value("lab_fallbacks_total", {"hop": hop}) or 0
+
+
+async def connection_refused(request: httpx.Request) -> httpx.Response:
+    raise httpx.ConnectError("refused")
+
+
+async def times_out(request: httpx.Request) -> httpx.Response:
+    raise httpx.ReadTimeout("no answer")
+
+
+async def fails_with_500(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(500)
+
+
+async def failed_further_down(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(504, json={"error": "timeout", "failed_hop": "inventory->db"})
+
+
+@pytest.mark.parametrize(
+    "downstream", [connection_refused, times_out, fails_with_500, failed_further_down]
+)
+def test_a_failed_callee_is_left_out_and_the_request_succeeds(downstream: Handler) -> None:
+    before = fallbacks("orders->inventory")
+    res = ask("orders", [fallback_hop()], downstream)
+    assert res.status_code == 200
+    assert res.json() == {"service": "orders", "calls": [{"fallback": "orders->inventory"}]}
+    assert fallbacks("orders->inventory") - before == 1
+
+
+def test_an_open_breaker_is_answered_with_the_fallback_too() -> None:
+    hop = Hop("orders->inventory", "http://inventory", 0.5, 0, breaker=Breaker(), fallback=True)
+    for _ in range(10):  # opens the breaker; every one of them is a fallback already
+        ask("orders", [hop], connection_refused)
+    res = ask("orders", [hop], connection_refused)
+    assert res.status_code == 200
+    assert res.json()["calls"] == [{"fallback": "orders->inventory"}]
+
+
+def test_the_other_callees_answers_stay() -> None:
+    async def payments_down(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "payments":
+            raise httpx.ConnectError("refused")
+        return await answers_as_leaf(request)
+
+    calls = [
+        hop("orders->inventory", "http://inventory"),
+        fallback_hop("orders->payments", "http://payments"),
+    ]
+    res = ask("orders", calls, payments_down)
+    assert res.json() == {
+        "service": "orders",
+        "calls": [leaf("inventory"), {"fallback": "orders->payments"}],
+    }
+
+
+def test_an_answer_is_never_replaced_by_the_fallback() -> None:
+    async def not_found(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"error": "no such item"})
+
+    before = fallbacks("orders->inventory")
+    res = ask("orders", [fallback_hop()], not_found)
+    assert res.status_code == 404  # "does not exist" is an answer, not an outage
+    assert fallbacks("orders->inventory") == before
+
+
+def test_without_a_fallback_the_failure_is_passed_on() -> None:
+    res = ask("orders", [hop("orders->inventory", "http://inventory")], connection_refused)
+    assert res.status_code == 503
+
+
+def test_a_fallback_comes_from_the_config_and_is_off_by_default() -> None:
+    assert Hop.parse(VALID).fallback is False
+    assert Hop.parse({**VALID, "fallback": True}).fallback is True
