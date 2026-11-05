@@ -1,6 +1,6 @@
 import { END_STATES, type Experiment, type Phase } from "./api";
 import { phaseProgress, recall } from "./progress";
-import { errorRate } from "./results";
+import { degradedRate, errorRate } from "./results";
 
 type Props = {
   experiment: Experiment; // the latest answer of the poll
@@ -78,6 +78,7 @@ export function ExperimentStatus({ experiment, unreachable, onAbort }: Props) {
                     <td>-</td>
                     <td>-</td>
                     <td>-</td>
+                    <td>-</td>
                   </>
                 )}
                 {s !== undefined && rate === null && <td>no requests</td>}
@@ -86,6 +87,7 @@ export function ExperimentStatus({ experiment, unreachable, onAbort }: Props) {
                     <td>{s.latency_ms.all?.p50.toFixed(1)} ms</td>
                     <td>{s.latency_ms.all?.p95.toFixed(1)} ms</td>
                     <td>{(rate * 100).toFixed(1)} %</td>
+                    <td>{((degradedRate(s) ?? 0) * 100).toFixed(1)} % degraded</td>
                     <td>
                       {s.example_trace && <a href={`${JAEGER}/trace/${s.example_trace}`}>trace</a>}
                     </td>

@@ -44,7 +44,7 @@ def transition(current: State, target: State) -> State:
 @dataclass(frozen=True)
 class Hypothesis:
     max_p95_ms: float  # p95 of *all* requests during inject (failures make users wait too)
-    max_error_rate: float  # share of scheduled requests that did not end "ok", 0.0–1.0
+    max_error_rate: float  # share of scheduled requests not "ok" or "degraded", 0.0–1.0
 
 
 @dataclass(frozen=True)
@@ -60,9 +60,9 @@ def judge(inject: dict[str, Any], hypothesis: Hypothesis) -> Verdict:
     value is less than or equal to it. See tests/test_experiments.py.
     """
     reasons: list[str] = []
-    ok_number = inject["outcomes"].get("ok", 0)
+    answered = inject["outcomes"].get("ok", 0) + inject["outcomes"].get("degraded", 0)
     p95 = inject["latency_ms"]["all"]["p95"]
-    err_rate = (inject["scheduled"] - ok_number) / inject["scheduled"]
+    err_rate = (inject["scheduled"] - answered) / inject["scheduled"]
     if p95 > hypothesis.max_p95_ms:
         reasons.append(f"p95 {p95:.1f} ms > {hypothesis.max_p95_ms:g} ms")
     if err_rate > hypothesis.max_error_rate:

@@ -86,6 +86,11 @@ EXP002_B = {
 LIMITS = Hypothesis(max_p95_ms=500, max_error_rate=0.01)
 
 
+def test_degraded_answers_are_not_errors() -> None:
+    fallback = {**EXP002_A, "outcomes": {"ok": 500, "degraded": 1000}}
+    assert judge(fallback, LIMITS).passed
+
+
 def test_exp002_a_passes() -> None:
     assert judge(EXP002_A, LIMITS) == Verdict(passed=True, reasons=[])
 

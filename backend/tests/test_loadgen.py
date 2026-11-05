@@ -6,7 +6,15 @@ from typing import Any
 import httpx
 import pytest
 
-from chaosnet.loadgen import Outcome, Sample, example_trace, per_second, run_load, summarize
+from chaosnet.loadgen import (
+    Outcome,
+    Sample,
+    example_trace,
+    has_fallback,
+    per_second,
+    run_load,
+    summarize,
+)
 
 Handler = Callable[[httpx.Request], Coroutine[Any, Any, httpx.Response]]
 
@@ -241,3 +249,59 @@ def test_every_sent_request_starts_its_own_trace() -> None:
     assert len(seen) == len(samples) == 5
     assert {h.split("-")[1] for h in seen} == {s.trace_id for s in samples}
     assert len({s.trace_id for s in samples}) == 5  # one trace per request
+
+
+# --- degraded: answered by a fallback (#176, ADR-010) ----------------------------------
+
+FALLBACK_DEEP: dict[str, Any] = {
+    "service": "gateway",
+    "calls": [{"service": "orders", "calls": [{"fallback": "orders->inventory"}]}],
+}
+ALL_ANSWERED: dict[str, Any] = {
+    "service": "gateway",
+    "calls": [{"service": "orders", "calls": [{"service": "inventory", "calls": []}]}],
+}
+
+
+def test_a_fallback_is_found_at_any_depth() -> None:
+    assert has_fallback(FALLBACK_DEEP)
+    assert has_fallback({"fallback": "gateway->orders"})
+    assert not has_fallback(ALL_ANSWERED)
+    assert not has_fallback({"service": "inventory", "calls": []})
+
+
+def test_a_200_with_a_fallback_inside_is_degraded_any_other_200_is_ok() -> None:
+    answers = [
+        httpx.Response(200, json=FALLBACK_DEEP),
+        httpx.Response(200, json=ALL_ANSWERED),
+        httpx.Response(200, text="not json"),  # another target: just ok
+        httpx.Response(200, json=[1, 2]),
+    ]
+    calls = iter(answers)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return next(calls)
+
+    samples = load(handler, rate=100, duration_s=0.04)
+    assert [s.outcome for s in samples] == ["degraded", "ok", "ok", "ok"]
+
+
+def test_errors_come_before_degraded_and_degraded_before_ok_as_the_example() -> None:
+    errors_too = [
+        traced(0.900, "degraded", "slow-degraded"),
+        traced(0.500, "timeout", "the-error"),
+        traced(1.200, "ok", "slow-ok"),
+    ]
+    assert example_trace(errors_too) == "the-error"
+    no_errors = [traced(0.100, "degraded", "degraded"), traced(1.200, "ok", "slow-ok")]
+    assert example_trace(no_errors) == "degraded"
+
+
+def test_per_second_degraded_is_not_an_error() -> None:
+    samples = [
+        Sample(0.1, 0.0, 0.01, "degraded"),
+        Sample(0.2, 0.0, 0.01, "ok"),
+        Sample(0.3, 0.0, 0.01, "timeout"),
+        Sample(0.4, 0.0, 0.01, "ok"),
+    ]
+    assert per_second(samples)[0]["error_rate"] == 0.25
