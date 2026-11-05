@@ -16,13 +16,20 @@ import secrets
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import httpx
 
 from chaosnet.stats import percentile
 
-Outcome = Literal["ok", "http_4xx", "http_5xx", "timeout", "connection_error", "dropped"]
+Outcome = Literal[
+    "ok", "degraded", "http_4xx", "http_5xx", "timeout", "connection_error", "dropped"
+]
+
+
+def is_error(outcome: Outcome) -> bool:
+    """A degraded answer is an answer, not an error (ADR-010): only the rest fail."""
+    return outcome not in ("ok", "degraded")
 
 
 @dataclass(frozen=True)
@@ -32,6 +39,25 @@ class Sample:
     latency_s: float  # from scheduled send time until the outcome was known
     outcome: Outcome
     trace_id: str | None = None  # the trace this request started (#159); None if dropped
+
+
+def has_fallback(body: dict[str, Any]) -> bool:
+    """True when a fallback answered anywhere in the tree of calls (ADR-010)."""
+    if "fallback" in body:
+        return True
+    for call in body.get("calls", []):
+        if has_fallback(call):
+            return True
+    return False
+
+
+def answered_by_fallback(res: httpx.Response) -> bool:
+    """A 200 whose body has a fallback somewhere; any other target's body is just ok."""
+    try:
+        body: Any = res.json()
+    except ValueError:
+        return False
+    return isinstance(body, dict) and has_fallback(cast(dict[str, Any], body))
 
 
 async def run_load(
@@ -71,7 +97,13 @@ async def run_load(
                 method, url, json=json_body, timeout=timeout_s, headers={"traceparent": traceparent}
             )
             outcome: Outcome = (
-                "http_5xx" if res.status_code >= 500 else "http_4xx" if res.is_error else "ok"
+                "http_5xx"
+                if res.status_code >= 500
+                else "http_4xx"
+                if res.is_error
+                else "degraded"
+                if answered_by_fallback(res)
+                else "ok"
             )
         except httpx.TimeoutException:
             outcome = "timeout"
@@ -130,15 +162,19 @@ def example_trace(samples: list[Sample]) -> str | None:
     """The trace ID worth opening for a phase (#159, rule by Tomáš 2026-11-04).
 
     The slowest failed request, because the link is there to show what went wrong; if
-    nothing failed, the slowest request, which explains the p95. Only requests that
+    nothing failed, the slowest degraded one, which shows the fallback (#176, Tomáš
+    2026-11-05); else the slowest request, which explains the p95. Only requests that
     were sent have a trace (a dropped one has none); None if there is none.
     """
     filtered = [s for s in samples if s.trace_id is not None]
     if len(filtered) == 0:
         return None
-    failed = [s for s in filtered if s.outcome != "ok"]
+    failed = [s for s in filtered if is_error(s.outcome)]
     if len(failed) > 0:
         return max(failed, key=lambda s: s.latency_s).trace_id
+    degraded = [s for s in filtered if s.outcome == "degraded"]
+    if len(degraded) > 0:
+        return max(degraded, key=lambda s: s.latency_s).trace_id
     return max(filtered, key=lambda s: s.latency_s).trace_id
 
 
@@ -168,8 +204,7 @@ def per_second(samples: list[Sample]) -> list[dict[str, Any]]:
             continue
         p50 = round(percentile(latencies, 50), 2)
         p95 = round(percentile(latencies, 95), 2)
-        count = len([g for g in group if g.outcome == "ok"])
-        err_rate = (len(group) - count) / len(group)
+        err_rate = len([g for g in group if is_error(g.outcome)]) / len(group)
         res.append({"second": i, "p50": p50, "p95": p95, "error_rate": err_rate})
     return res
 
