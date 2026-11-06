@@ -354,6 +354,9 @@ def start_controller(tmp_path: Path) -> Iterator[StartController]:
     restart sees what the previous process left behind. Same teardown as start_fault."""
     env = {
         **CLI_ENV,
+        # The controller applies the lab when it starts (#191): this project, these ports,
+        # never the lab you run for development.
+        **{k: v for k, v in ENV.items() if k == "COMPOSE_PROJECT_NAME" or k.endswith("_PORT")},
         "TARGET_URL": f"http://127.0.0.1:{PORT}/orders",
         "CHAOSNET_PORT": API_URL.rsplit(":", 1)[1],
         "CHAOSNET_DB": str(tmp_path / "chaosnet.db"),
@@ -362,13 +365,13 @@ def start_controller(tmp_path: Path) -> Iterator[StartController]:
 
     def up() -> bool:
         try:
-            return httpx.get(f"{API_URL}/experiments", timeout=1).is_success
+            return httpx.get(f"{API_URL}/lab", timeout=1).json()["state"] == "running"
         except httpx.TransportError:
             return False
 
     def start() -> subprocess.Popen[bytes]:
         procs.append(subprocess.Popen([str(CONTROLLER)], env=env))
-        wait_until(up, timeout_s=10)
+        wait_until(up, timeout_s=60)  # serving, and the startup apply has finished
         return procs[-1]
 
     yield start

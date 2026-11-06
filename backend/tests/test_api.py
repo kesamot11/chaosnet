@@ -9,6 +9,8 @@ from fakes import API, LINK, FakeToxiproxy, Lab
 from chaosnet.api import create_app
 from chaosnet.experiments import LoadSpec
 from chaosnet.faults import FaultDriver
+from chaosnet.lab import Lab as ControlledLab
+from chaosnet.lab import LabError
 from chaosnet.runner import Runner
 from chaosnet.store import Store
 from chaosnet.topology import Topology
@@ -29,8 +31,34 @@ SLOW = {**SPEC, "phases_s": {"baseline": 0.02, "inject": 5, "recover": 0.02}}
 Test = Callable[[httpx.AsyncClient, Lab], Awaitable[None]]
 
 
-def run(tmp_path: Path, test: Test, transport: httpx.MockTransport | None = None) -> Lab:
-    """Run ``test`` against the API, with fake Toxiproxy, load and watchdog behind it."""
+class FakeCompose:
+    """``docker compose up`` for tests: waits for ``gate`` if set, then takes the next result.
+
+    A result is None (started) or compose's output (failed); with none left, it starts.
+    """
+
+    def __init__(self) -> None:
+        self.results: list[str | None] = []
+        self.gate: asyncio.Event | None = None
+
+    async def __call__(self, lab_dir: Path) -> None:
+        if self.gate is not None:
+            await self.gate.wait()
+        failure = self.results.pop(0) if self.results else None
+        if failure is not None:
+            raise LabError(failure)
+
+
+def run(
+    tmp_path: Path,
+    test: Test,
+    transport: httpx.MockTransport | None = None,
+    compose: FakeCompose | None = None,
+) -> Lab:
+    """Run ``test`` against the API, with fake Toxiproxy, load, watchdog and Docker behind it.
+
+    The lab has started, as after the controller's startup apply (#191).
+    """
     lab = Lab(FakeToxiproxy())
 
     async def go() -> None:
@@ -46,7 +74,9 @@ def run(tmp_path: Path, test: Test, transport: httpx.MockTransport | None = None
 
                 topology = tmp_path / "topology.json"
                 topology.write_text(LAB_TOPOLOGY.model_dump_json(by_alias=True))
-                app = create_app(store, make_runner, topology, driver)
+                controlled = ControlledLab(topology, compose or FakeCompose())
+                await controlled.apply(None)
+                app = create_app(store, make_runner, controlled, driver)
                 api = httpx.ASGITransport(app=app)
                 async with httpx.AsyncClient(transport=api, base_url="http://api") as client:
                     await test(client, lab)
@@ -228,6 +258,7 @@ def test_a_saved_topology_is_the_one_used_from_then_on(tmp_path: Path) -> None:
         # in memory: GET shows it and an experiment may use the new link
         topo = (await client.get("/topology")).json()
         assert topo["links"][-1]["name"] == "orders-payments"
+        await lab_state(client, "running")
         new_link = {**SPEC, "fault": {**SPEC["fault"], "link": "orders-payments"}}
         assert (await client.post("/experiments", json=new_link)).status_code == 201
 
@@ -262,3 +293,81 @@ def test_saving_while_an_experiment_runs_is_refused(tmp_path: Path) -> None:
         await client.post(f"/experiments/{exp['id']}/abort")
 
     run(tmp_path, test)
+
+
+async def lab_state(client: httpx.AsyncClient, state: str) -> dict[str, Any]:
+    """Wait until GET /lab says ``state`` (the apply runs in the background)."""
+    lab: dict[str, Any] = {}
+    for _ in range(500):
+        lab = (await client.get("/lab")).json()
+        if lab["state"] == state:
+            return lab
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"the lab never reached {state}: {lab}")
+
+
+def test_a_saved_topology_is_applied_in_the_background(tmp_path: Path) -> None:
+    compose = FakeCompose()
+
+    async def test(client: httpx.AsyncClient, lab: Lab) -> None:
+        assert (await client.get("/lab")).json() == {"state": "running", "error": None}
+        compose.gate = asyncio.Event()
+        assert (await client.put("/topology", json=WITH_PAYMENTS)).status_code == 200
+        assert (await client.get("/lab")).json()["state"] == "restarting"
+        # ADR-011: no second apply, no experiment while the lab restarts
+        res = await client.put("/topology", json=WITH_PAYMENTS)
+        assert (res.status_code, res.json()["detail"]) == (
+            409,
+            "the lab is restarting, wait until it runs",
+        )
+        res = await client.post("/experiments", json=SPEC)
+        assert (res.status_code, res.json()["detail"]) == (
+            409,
+            "the lab is restarting, not running",
+        )
+        compose.gate.set()
+        assert await lab_state(client, "running") == {"state": "running", "error": None}
+        assert "payments" in (tmp_path / "compose.yaml").read_text()  # regenerated
+
+    run(tmp_path, test, compose=compose)
+
+
+def test_a_topology_that_fails_to_start_is_rolled_back(tmp_path: Path) -> None:
+    compose = FakeCompose()
+
+    async def test(client: httpx.AsyncClient, lab: Lab) -> None:
+        before = (tmp_path / "topology.json").read_text()
+        compose.results = ["container payments is unhealthy", None]  # the old one starts
+        await client.put("/topology", json=WITH_PAYMENTS)
+        state = await lab_state(client, "running")
+        assert state["error"] == (
+            "the new topology failed, the previous one is back: container payments is unhealthy"
+        )
+        topo = (await client.get("/topology")).json()
+        assert [s["name"] for s in topo["services"]] == ["gateway", "orders", "inventory"]
+        assert Topology.model_validate_json((tmp_path / "topology.json").read_text()) == (
+            Topology.model_validate_json(before)
+        )
+        assert "payments" not in (tmp_path / "compose.yaml").read_text()
+
+    run(tmp_path, test, compose=compose)
+
+
+def test_when_going_back_fails_too_the_lab_is_failed(tmp_path: Path) -> None:
+    compose = FakeCompose()
+
+    async def test(client: httpx.AsyncClient, lab: Lab) -> None:
+        compose.results = ["container payments is unhealthy", "Cannot connect to Docker"]
+        await client.put("/topology", json=WITH_PAYMENTS)
+        state = await lab_state(client, "failed")
+        assert state["error"] == (
+            "the new topology failed: container payments is unhealthy; "
+            "going back failed too: Cannot connect to Docker"
+        )
+        res = await client.post("/experiments", json=SPEC)
+        assert (res.status_code, res.json()["detail"]) == (409, "the lab is failed, not running")
+        # saving is how the user repairs it
+        assert (await client.put("/topology", json=WITH_PAYMENTS)).status_code == 200
+        assert (await lab_state(client, "running"))["error"] is None
+
+    run(tmp_path, test, compose=compose)
