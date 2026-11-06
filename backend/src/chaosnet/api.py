@@ -37,10 +37,11 @@ LAB_TOPOLOGY = Path(__file__).parents[3] / "lab" / "topology.json"
 
 
 def create_app(
-    store: Store, make_runner: MakeRunner, topology: Topology, driver: FaultDriver
+    store: Store, make_runner: MakeRunner, topology_path: Path, driver: FaultDriver
 ) -> FastAPI:
+    """``topology_path`` is the lab's topology: read here, rewritten by PUT /topology (#190)."""
     tasks: dict[int, asyncio.Task[None]] = {}
-    links = {link.name for link in topology.links}
+    topology = Topology.model_validate_json(topology_path.read_text())
 
     async def abort(experiment_id: int) -> None:
         task = tasks.get(experiment_id)
@@ -62,6 +63,7 @@ def create_app(
 
     @app.post("/experiments", status_code=201)
     async def start(spec: ExperimentSpec) -> Experiment:
+        links = {link.name for link in topology.links}
         if spec.fault.link not in links:
             # Found here, not after the baseline was measured (ADR-004 consequences).
             raise HTTPException(
@@ -86,6 +88,21 @@ def create_app(
         for link, data in zip(topology.links, result["links"], strict=True):
             data |= {"name": link.name, "available": link.name in proxies}
         return result
+
+    @app.put("/topology")
+    async def put_topology(new: Topology) -> dict[str, Any]:
+        """Save a topology from the editor (#190); a broken one never gets here (422)."""
+        nonlocal topology
+        running = store.running()
+        if running:
+            raise HTTPException(
+                409, f"experiment {running.id} is {running.state}, wait until it ends"
+            )
+        tmp = topology_path.with_suffix(".json.tmp")
+        tmp.write_text(new.model_dump_json(by_alias=True, indent=2))
+        os.replace(tmp, topology_path)
+        topology = new
+        return await get_topology()
 
     @app.get("/experiments")
     async def list_experiments() -> list[Experiment]:
@@ -144,8 +161,7 @@ async def serve() -> None:
                 return Runner(store, driver, measure, heartbeat)
 
             path = Path(os.environ.get("CHAOSNET_TOPOLOGY", LAB_TOPOLOGY))
-            topology = Topology.model_validate_json(path.read_text())
-            app = create_app(store, make_runner, topology, driver)
+            app = create_app(store, make_runner, path, driver)
             await uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port)).serve()
 
 

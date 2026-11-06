@@ -92,5 +92,5 @@ def check(topology: Topology) -> None:
 
     # ponytail: walks every path, exponential on many diamonds; fine for a lab of a few
     # services, remember finished services if topologies ever grow large.
-    for name in services:
-        walk(name, [])
+    for s in topology.services:  # the file's order, so the same topology gives the same message
+        walk(s.name, [])
