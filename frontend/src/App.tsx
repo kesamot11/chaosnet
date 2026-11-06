@@ -3,6 +3,7 @@ import {
   abortExperiment,
   fetchExperiments,
   fetchTopology,
+  type LabStatus,
   saveTopology,
   type Topology,
 } from "./api";
@@ -12,6 +13,7 @@ import { LatencyChart } from "./LatencyChart";
 import type { Position } from "./layout";
 import { TopologyView } from "./TopologyView";
 import { useExperiment } from "./useExperiment";
+import { useLab } from "./useLab";
 
 export function App() {
   const [topology, setTopology] = useState<Topology | null>(null);
@@ -21,6 +23,12 @@ export function App() {
   const [experimentId, setExperimentId] = useState<number | null>(null);
   const { experiment, unreachable } = useExperiment(experimentId);
   const [notSaved, setNotSaved] = useState<string | null>(null);
+  // When a restart ends, the topology may be the previous one again (a rollback, #191).
+  const lab = useLab(() => {
+    fetchTopology()
+      .then(setTopology)
+      .catch(() => {}); // no answer: the next restart or a reload shows it
+  });
 
   // A dropped service is saved at once (#192, Tomáš): only its position changed, so the
   // controller saves it without touching the lab. Refused: it goes back where it was.
@@ -66,6 +74,7 @@ export function App() {
       {error === null && topology === null && <p>Loading the lab…</p>}
       {topology !== null && (
         <>
+          {lab !== null && <LabLine lab={lab} />}
           <TopologyView
             topology={topology}
             selected={selected}
@@ -92,4 +101,14 @@ export function App() {
       )}
     </main>
   );
+}
+
+/** What the lab is doing, for the user (#191, #192; the words are Tomáš's). */
+export function LabLine({ lab }: { lab: LabStatus }) {
+  if (lab.state === "restarting") return <p>The lab is restarting, hold on a moment…</p>;
+  if (lab.state === "failed") return <p role="alert">The lab failed: {lab.error}</p>;
+  if (lab.error !== null) {
+    return <p role="alert">The last change failed, so the previous lab is back: {lab.error}</p>;
+  }
+  return <p>The lab is running.</p>;
 }
