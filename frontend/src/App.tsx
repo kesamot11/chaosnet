@@ -4,16 +4,15 @@ import {
   fetchExperiments,
   fetchTopology,
   type LabStatus,
-  saveTopology,
   type Topology,
 } from "./api";
 import { ExperimentForm } from "./ExperimentForm";
 import { ExperimentStatus } from "./ExperimentStatus";
 import { LatencyChart } from "./LatencyChart";
-import type { Position } from "./layout";
 import { TopologyView } from "./TopologyView";
 import { useExperiment } from "./useExperiment";
 import { useLab } from "./useLab";
+import { useMove } from "./useMove";
 
 export function App() {
   const [topology, setTopology] = useState<Topology | null>(null);
@@ -22,7 +21,6 @@ export function App() {
   // The experiment started last; it outlives the form, which follows the selected link.
   const [experimentId, setExperimentId] = useState<number | null>(null);
   const { experiment, unreachable } = useExperiment(experimentId);
-  const [notSaved, setNotSaved] = useState<string | null>(null);
   // When a restart ends, the topology may be the previous one again (a rollback, #191).
   const lab = useLab(() => {
     fetchTopology()
@@ -30,22 +28,7 @@ export function App() {
       .catch(() => {}); // no answer: the next restart or a reload shows it
   });
 
-  // A dropped service is saved at once (#192, Tomáš): only its position changed, so the
-  // controller saves it without touching the lab. Refused: it goes back where it was.
-  // ponytail: two drops whose answers come back in the wrong order show the older one until a
-  // reload (the file is right); on localhost an answer takes ms. Queue the saves if it bites.
-  async function move(service: string, position: Position) {
-    if (topology === null) return;
-    const at = { x: Math.round(position.x), y: Math.round(position.y) }; // whole pixels: a readable file
-    const moved: Topology = {
-      ...topology,
-      services: topology.services.map((s) => (s.name === service ? { ...s, ...at } : s)),
-    };
-    setTopology(moved);
-    const saved = await saveTopology(moved);
-    setTopology(saved.ok ? saved.topology : topology);
-    setNotSaved(saved.ok ? null : saved.reason);
-  }
+  const { move, notSaved } = useMove(topology, setTopology); // a dropped service (#192)
 
   useEffect(() => {
     const request = new AbortController();
