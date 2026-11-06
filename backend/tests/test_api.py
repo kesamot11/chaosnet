@@ -44,7 +44,9 @@ def run(tmp_path: Path, test: Test, transport: httpx.MockTransport | None = None
                         store, driver, lab.measure, lab.heartbeat, heartbeat_interval_s=0.01
                     )
 
-                app = create_app(store, make_runner, LAB_TOPOLOGY, driver)
+                topology = tmp_path / "topology.json"
+                topology.write_text(LAB_TOPOLOGY.model_dump_json(by_alias=True))
+                app = create_app(store, make_runner, topology, driver)
                 api = httpx.ASGITransport(app=app)
                 async with httpx.AsyncClient(transport=api, base_url="http://api") as client:
                     await test(client, lab)

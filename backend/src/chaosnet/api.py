@@ -37,9 +37,11 @@ LAB_TOPOLOGY = Path(__file__).parents[3] / "lab" / "topology.json"
 
 
 def create_app(
-    store: Store, make_runner: MakeRunner, topology: Topology, driver: FaultDriver
+    store: Store, make_runner: MakeRunner, topology_path: Path, driver: FaultDriver
 ) -> FastAPI:
+    """``topology_path`` is the lab's topology: read here, rewritten by PUT /topology (#190)."""
     tasks: dict[int, asyncio.Task[None]] = {}
+    topology = Topology.model_validate_json(topology_path.read_text())
     links = {link.name for link in topology.links}
 
     async def abort(experiment_id: int) -> None:
@@ -144,8 +146,7 @@ async def serve() -> None:
                 return Runner(store, driver, measure, heartbeat)
 
             path = Path(os.environ.get("CHAOSNET_TOPOLOGY", LAB_TOPOLOGY))
-            topology = Topology.model_validate_json(path.read_text())
-            app = create_app(store, make_runner, topology, driver)
+            app = create_app(store, make_runner, path, driver)
             await uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port)).serve()
 
 
