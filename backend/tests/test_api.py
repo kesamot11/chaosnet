@@ -198,3 +198,67 @@ def test_experiment_on_a_link_outside_the_topology_is_rejected(tmp_path: Path) -
         assert (await client.get("/experiments")).json() == []  # nothing was stored
 
     run(tmp_path, test)
+
+
+# PUT /topology (#190): the lab from lab/topology.json plus payments, called by orders.
+WITH_PAYMENTS: dict[str, Any] = {
+    **LAB_TOPOLOGY.model_dump(by_alias=True),
+    "services": [*LAB_TOPOLOGY.model_dump()["services"], {"name": "payments", "port": None}],
+    "links": [
+        *LAB_TOPOLOGY.model_dump(by_alias=True)["links"],
+        {"from": "orders", "to": "payments", "timeout_s": 1.0},
+    ],
+}
+
+
+def test_a_saved_topology_is_the_one_used_from_then_on(tmp_path: Path) -> None:
+    async def test(client: httpx.AsyncClient, lab: Lab) -> None:
+        res = await client.put("/topology", json=WITH_PAYMENTS)
+        assert res.status_code == 200
+        assert [s["name"] for s in res.json()["services"]] == [
+            "gateway",
+            "orders",
+            "inventory",
+            "payments",
+        ]
+        # on disk, whole, with nothing left beside it
+        saved = Topology.model_validate_json((tmp_path / "topology.json").read_text())
+        assert [lk.name for lk in saved.links][-1] == "orders-payments"
+        assert not (tmp_path / "topology.json.tmp").exists()
+        # in memory: GET shows it and an experiment may use the new link
+        topo = (await client.get("/topology")).json()
+        assert topo["links"][-1]["name"] == "orders-payments"
+        new_link = {**SPEC, "fault": {**SPEC["fault"], "link": "orders-payments"}}
+        assert (await client.post("/experiments", json=new_link)).status_code == 201
+
+    run(tmp_path, test)
+
+
+def test_a_broken_topology_is_refused_and_the_file_kept(tmp_path: Path) -> None:
+    async def test(client: httpx.AsyncClient, lab: Lab) -> None:
+        before = (tmp_path / "topology.json").read_text()
+        cycle = {
+            **WITH_PAYMENTS,
+            "links": [*WITH_PAYMENTS["links"], {"from": "payments", "to": "orders"}],
+        }
+        res = await client.put("/topology", json=cycle)
+        assert res.status_code == 422
+        # FastAPI's shape: a list of errors, `check`'s message after Pydantic's prefix
+        [error] = res.json()["detail"]
+        assert error["msg"] == "Value error, cycle: gateway -> orders -> payments -> orders"
+        assert (tmp_path / "topology.json").read_text() == before
+
+    run(tmp_path, test)
+
+
+def test_saving_while_an_experiment_runs_is_refused(tmp_path: Path) -> None:
+    async def test(client: httpx.AsyncClient, lab: Lab) -> None:
+        before = (tmp_path / "topology.json").read_text()
+        exp = (await client.post("/experiments", json=SLOW)).json()
+        res = await client.put("/topology", json=WITH_PAYMENTS)
+        assert res.status_code == 409
+        assert f"experiment {exp['id']} is" in res.json()["detail"]
+        assert (tmp_path / "topology.json").read_text() == before
+        await client.post(f"/experiments/{exp['id']}/abort")
+
+    run(tmp_path, test)
