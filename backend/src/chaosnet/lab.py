@@ -12,6 +12,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Literal
 
+from chaosnet.labgen import write_lab
 from chaosnet.topology import Topology
 
 LabState = Literal["running", "restarting", "failed"]
@@ -57,3 +58,45 @@ def save(topology: Topology, path: Path) -> None:
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(topology.model_dump_json(by_alias=True, indent=2))
     os.replace(tmp, path)
+
+
+class Lab:
+    """The lab as the API sees it (#191): the topology in effect and whether it runs."""
+
+    def __init__(self, topology_path: Path, compose: Compose) -> None:
+        self.path = topology_path
+        self.compose = compose
+        self.topology = Topology.model_validate_json(topology_path.read_text())
+        self.state: LabState = "restarting"
+        self.error: str | None = None
+
+    async def apply(self, previous: Topology | None) -> None:
+        """Bring the lab to ``self.topology``, already saved in ``self.path`` (ADR-011).
+
+        On failure go back to ``previous``; None at controller start, with nothing to go back to.
+        """
+        self.state = "restarting"
+        self.error = None
+        try:
+            await self._start()
+            self.state = "running"
+            return
+        except LabError as e:
+            first = str(e)
+        if previous is None:
+            self.state = "failed"
+            self.error = first
+            return
+        self.topology = previous
+        save(previous, self.path)
+        try:
+            await self._start()
+            self.state = "running"
+            self.error = f"the new topology failed, the previous one is back: {first}"
+        except LabError as e:
+            self.state = "failed"
+            self.error = f"the new topology failed: {first}; going back failed too: {e}"
+
+    async def _start(self) -> None:
+        write_lab(self.path, self.path.parent)
+        await self.compose(self.path.parent)
