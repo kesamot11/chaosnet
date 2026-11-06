@@ -612,3 +612,70 @@ requests. As `degraded`, they show both.
 | 2 | a header (`X-Degraded`) | every service would have to copy it to its own response |
 | 4 | count it as `ok` | hides the outage |
 | 4 | count it as an error | hides that the fallback worked |
+
+---
+
+## ADR-011: The controller applies a topology drawn in the UI
+
+- **Status:** Accepted
+- **Date:** 2026-11-06 (Sprint 9 planning)
+- **Issues:** #188 (epic M7), #189–#194, #185
+- **Decided by:** Tomáš; reasons below are his, recorded from the discussion
+
+### Context
+
+Until now the lab is edited by hand: change `lab/topology.json`, run `chaosnet-lab`,
+then `docker compose up`. The UI only shows the topology (`GET /topology`). Sprint 9
+adds an editor: services are dragged, added and removed, links are drawn, and each
+link's resilience settings (timeout, retries, backoff, breaker, budget, fallback) are
+set in the UI.
+
+### Decisions
+
+**1. Saving applies.** The controller writes `topology.json`, regenerates the lab and
+recreates its containers. *Reason:* "when there is a UI where you drag the lab, you
+really don't want to type commands by hand."
+
+**2. This is a new privileged capability: the controller runs `docker compose`.**
+Approved by Tomáš in the planning. Guards:
+
+- the command is fixed and runs over the generated file; nothing from the request goes
+  into it,
+- service names are only `[a-z0-9]+` (`check`, #72), so nothing else can reach
+  `compose.yaml`,
+- the entry service's port is published on 127.0.0.1 only (verified in `labgen`),
+- the controller itself binds to 127.0.0.1 only (ADR-002).
+
+**3. No limit on the number of services.** *Reason:* "it runs locally." Against a local
+attacker it protects nothing; against a mistake, Docker Desktop's VM already caps the
+memory, so containers fail to start rather than the Mac freezing, and that failure is
+shown (decision 6). Added if it ever bites.
+
+**4. Saving while an experiment runs is refused** (409), as a second experiment is.
+Restarting containers mid-phase would break the measurement.
+
+**5. Starting an experiment while the lab restarts is refused:** "the lab is not running
+yet." The lab gets a state the UI shows: running, restarting, failed.
+
+**6. A container fails to start: roll back.** The previous topology is restored and
+started again, and the error says what failed. If the rollback fails too, the lab is
+"failed" with both errors and is started by hand.
+
+### Alternatives rejected
+
+| Decision | Rejected | Why |
+|---|---|---|
+| 1 | write `topology.json` only; regenerate and restart by hand | two commands after every drag |
+| 1 | write and regenerate; restart by hand | still a command after every change |
+| 3 | a maximum number of services | protects against nothing a local tool needs; Docker's VM caps the damage |
+| 6 | show the error and leave the lab half started | no lab to measure on until the user repairs it |
+
+### Consequences
+
+- The controller needs Docker on the machine it runs on, which it already had in
+  practice (the lab runs there); now it uses it.
+- Applying takes seconds (until every service answers), so it is a state, not a
+  request that waits: the UI polls it like an experiment.
+- Toxiproxy's proxies and Prometheus' targets are generated from the same file and must
+  be applied with the lab (#191).
+- The roadmap is unchanged: Sprint 10 a polished UI, then the public replay demo.
