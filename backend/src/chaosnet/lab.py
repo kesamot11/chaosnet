@@ -86,8 +86,16 @@ class Lab:
     async def apply(self, previous: Topology | None) -> None:
         """Bring the lab to ``self.topology``, already saved in ``self.path`` (ADR-011).
 
-        On failure go back to ``previous``; None at controller start, with nothing to go back to.
+        On failure go back to ``previous``; None at controller start, with nothing to go back
+        to. Never stays restarting: any other error ends it as failed (Tomáš's review).
         """
+        try:
+            await self._apply(previous)
+        except Exception as e:  # not compose's failure (a bug, the disk): LabError is inside
+            self.state = "failed"
+            self.error = f"{type(e).__name__}: {e}"
+
+    async def _apply(self, previous: Topology | None) -> None:
         self.state = "restarting"
         self.error = None
         try:

@@ -79,3 +79,18 @@ def test_the_cause_is_composes_error_not_its_progress() -> None:
         "container payments is unhealthy"
     )
     assert cause("") == "docker compose failed"
+
+
+def test_an_unexpected_error_ends_as_failed_not_restarting(tmp_path: Path) -> None:
+    # Tomáš's review (#191): only LabError was handled, so anything else left the lab
+    # restarting for ever, and every save was refused.
+    topology = tmp_path / "topology.json"
+    shutil.copy(Path(__file__).parents[2] / "lab" / "topology.json", topology)
+
+    async def compose(lab_dir: Path) -> None:
+        raise PermissionError(13, "Permission denied", str(lab_dir / "compose.yaml"))
+
+    lab = Lab(topology, compose)
+    asyncio.run(lab.apply(None))
+    assert lab.state == "failed"
+    assert lab.error == f"PermissionError: [Errno 13] Permission denied: '{tmp_path}/compose.yaml'"
