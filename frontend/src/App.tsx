@@ -20,7 +20,8 @@ import { useMove } from "./useMove";
 export function App() {
   const [topology, setTopology] = useState<Topology | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  // One selected thing at a time, a link (the fault form) or a service (Remove) (Tomáš).
+  const [selection, setSelection] = useState<Selection | null>(null);
   // The experiment started last; it outlives the form, which follows the selected link.
   const [experimentId, setExperimentId] = useState<number | null>(null);
   const { experiment, unreachable } = useExperiment(experimentId);
@@ -36,10 +37,14 @@ export function App() {
   // Changes of the lab wait in a draft until Save (#193); while there is one, a move is part
   // of it too, or saving the move would apply the draft (Tomáš).
   const [draft, setDraft] = useState<Topology | null>(null);
-  const [service, setService] = useState<string | null>(null); // the selected service
   const [saving, setSaving] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
   const shown = draft ?? topology;
+  // A selection counts only while its link or service is shown: a rollback or a removal may
+  // take it away, and nothing should point at what is gone.
+  const shownSelection = selection !== null && shows(shown, selection) ? selection : null;
+  const selected = shownSelection?.kind === "link" ? shownSelection.name : null;
+  const service = shownSelection?.kind === "service" ? shownSelection.name : null;
 
   function edit(change: (t: Topology) => Topology) {
     if (shown !== null) setDraft(change(shown));
@@ -91,10 +96,10 @@ export function App() {
           <TopologyView
             topology={shown}
             selected={selected}
-            onSelect={setSelected}
+            onSelect={(name) => setSelection({ kind: "link", name })}
             onMove={draft === null ? move : (s, p) => edit((t) => withPosition(t, s, p))}
             service={service}
-            onSelectService={setService}
+            onSelectService={(name) => setSelection({ kind: "service", name })}
           />
           <Editor
             changed={draft !== null}
@@ -104,7 +109,7 @@ export function App() {
             onAdd={(name) => edit((t) => addService(t, name))}
             onRemove={(name) => {
               edit((t) => removeService(t, name));
-              setService(null);
+              setSelection(null);
             }}
             onSave={save}
           />
@@ -138,4 +143,14 @@ export function LabLine({ lab }: { lab: LabStatus }) {
     return <p role="alert">The last change failed, so the previous lab is back: {lab.error}</p>;
   }
   return <p>The lab is running.</p>;
+}
+
+type Selection = { kind: "link" | "service"; name: string };
+
+function shows(topology: Topology | null, selection: Selection): boolean {
+  const names =
+    selection.kind === "link"
+      ? (topology?.links ?? []).map((l) => `${l.from}-${l.to}`)
+      : (topology?.services ?? []).map((s) => s.name);
+  return names.includes(selection.name);
 }

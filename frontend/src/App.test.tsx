@@ -232,3 +232,47 @@ test("services are added and removed in a draft, applied only by Save (#193)", a
   expect(puts.at(-1)?.services.map((s) => s.name)).toEqual(["gateway"]);
   expect(puts.at(-1)?.links).toEqual([]); // gateway-orders went with orders
 });
+
+test("one thing is selected at a time, and never one that is gone (Tomáš's review)", async () => {
+  let lab: Topology = LAB;
+  const states: LabStatus[] = [{ state: "running", error: null }];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((path: string) => {
+      const body =
+        path === "/api/lab"
+          ? (states.shift() ?? { state: "running", error: null })
+          : path === "/api/experiments"
+            ? []
+            : lab;
+      return Promise.resolve(new Response(JSON.stringify(body)));
+    }),
+  );
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    render(<App />);
+    const edge = await waitFor(() => {
+      const e = document.querySelector('[data-id="gateway-orders"]');
+      if (!e) throw new Error("the link is not drawn yet");
+      return e;
+    });
+    fireEvent.click(edge);
+    expect(screen.getByText("Selected link: gateway-orders")).toBeInTheDocument();
+
+    const orders = document.querySelector('.react-flow__node[data-id="orders"]');
+    if (!orders) throw new Error("orders is not drawn");
+    fireEvent.click(orders);
+    expect(screen.getByRole("button", { name: "Remove orders" })).toBeInTheDocument();
+    expect(screen.queryByText(/Selected link/)).not.toBeInTheDocument(); // the link is not
+
+    // a restart that ends without orders (a rollback): its selection goes with it
+    lab = { ...LAB, services: LAB.services.filter((s) => s.name !== "orders"), links: [] };
+    states.push({ state: "restarting", error: null }, { state: "running", error: "rolled back" });
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    await waitFor(() => expect(screen.queryByText("orders")).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Remove orders" })).not.toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+  }
+});
