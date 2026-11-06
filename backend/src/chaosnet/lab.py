@@ -8,6 +8,7 @@ it, and service names are only ``[a-z0-9]+`` (``check``), so nothing else can re
 
 import asyncio
 import os
+import sys
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Literal
@@ -50,7 +51,19 @@ async def compose_up(lab_dir: Path) -> None:
         )
         output, _ = await process.communicate()
         if process.returncode != 0:
-            raise LabError(output.decode(errors="replace").strip())
+            text = output.decode(errors="replace").strip()
+            print(text, file=sys.stderr, flush=True)  # the whole output, in the controller's log
+            raise LabError(cause(text))
+
+
+def cause(output: str) -> str:
+    """The lines of compose's output that say why, not its ~25 lines of progress (#191).
+
+    Its errors start with "Error"; without one, its last line.
+    """
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    errors = [line for line in lines if line.startswith("Error")]
+    return "\n".join(errors) if errors else (lines[-1] if lines else "docker compose failed")
 
 
 def save(topology: Topology, path: Path) -> None:
