@@ -168,9 +168,14 @@ async function refusal(res: Response): Promise<string> {
   const detail = (body as { detail?: unknown } | null)?.detail;
   if (typeof detail === "string") return detail;
   if (Array.isArray(detail)) {
-    // loc starts with "body": ["body", "phases_s", "inject"] -> "phases_s.inject"
+    // loc starts with "body": ["body", "phases_s", "inject"] -> "phases_s.inject"; a rule of
+    // the whole body (check, #190) has only "body", and Pydantic's prefix says nothing
     return (detail as ValidationError[])
-      .map((e) => `${e.loc.slice(1).join(".")}: ${e.msg}`)
+      .map((e) => {
+        const where = e.loc.slice(1).join(".");
+        const msg = e.msg.replace(/^Value error, /, "");
+        return where === "" ? msg : `${where}: ${msg}`;
+      })
       .join("; ");
   }
   return `Controller error: HTTP ${res.status}`;

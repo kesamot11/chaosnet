@@ -4,10 +4,13 @@ import {
   fetchExperiments,
   fetchTopology,
   type LabStatus,
+  saveTopology,
   type Topology,
 } from "./api";
+import { Editor } from "./Editor";
 import { ExperimentForm } from "./ExperimentForm";
 import { ExperimentStatus } from "./ExperimentStatus";
+import { addService, removeService, withPosition } from "./edit";
 import { LatencyChart } from "./LatencyChart";
 import { TopologyView } from "./TopologyView";
 import { useExperiment } from "./useExperiment";
@@ -29,6 +32,30 @@ export function App() {
   });
 
   const { move, notSaved } = useMove(topology, setTopology); // a dropped service (#192)
+
+  // Changes of the lab wait in a draft until Save (#193); while there is one, a move is part
+  // of it too, or saving the move would apply the draft (Tomáš).
+  const [draft, setDraft] = useState<Topology | null>(null);
+  const [service, setService] = useState<string | null>(null); // the selected service
+  const [saving, setSaving] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
+  const shown = draft ?? topology;
+
+  function edit(change: (t: Topology) => Topology) {
+    if (shown !== null) setDraft(change(shown));
+  }
+
+  async function save() {
+    if (draft === null) return;
+    setSaving(true);
+    const saved = await saveTopology(draft);
+    setSaving(false);
+    setRefused(saved.ok ? null : saved.reason);
+    if (saved.ok) {
+      setTopology(saved.topology);
+      setDraft(null); // the lab now restarts: LabLine shows it
+    }
+  }
 
   useEffect(() => {
     const request = new AbortController();
@@ -58,14 +85,28 @@ export function App() {
       <h1>ChaosNet</h1>
       {error !== null && <p>Controller not reachable: {error}</p>}
       {error === null && topology === null && <p>Loading the lab…</p>}
-      {topology !== null && (
+      {shown !== null && (
         <>
           {lab !== null && <LabLine lab={lab} />}
           <TopologyView
-            topology={topology}
+            topology={shown}
             selected={selected}
             onSelect={setSelected}
-            onMove={move}
+            onMove={draft === null ? move : (s, p) => edit((t) => withPosition(t, s, p))}
+            service={service}
+            onSelectService={setService}
+          />
+          <Editor
+            changed={draft !== null}
+            service={service}
+            saving={saving}
+            refused={refused}
+            onAdd={(name) => edit((t) => addService(t, name))}
+            onRemove={(name) => {
+              edit((t) => removeService(t, name));
+              setService(null);
+            }}
+            onSave={save}
           />
           {notSaved !== null && <p role="alert">Not saved: {notSaved}</p>}
           <p>
