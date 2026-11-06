@@ -27,7 +27,7 @@ from chaosnet.lab import Lab, compose_up, save
 from chaosnet.loadgen import run_load, summarize
 from chaosnet.runner import Runner, reconcile
 from chaosnet.store import RUNNING, Experiment, ExperimentAlreadyRunning, Store
-from chaosnet.topology import Topology
+from chaosnet.topology import Topology, same_lab
 
 # Builds the runner for one experiment; the load (rate, body) differs per experiment.
 MakeRunner = Callable[[LoadSpec], Runner]
@@ -93,16 +93,20 @@ def create_app(store: Store, make_runner: MakeRunner, lab: Lab, driver: FaultDri
     @app.put("/topology")
     async def put_topology(new: Topology) -> dict[str, Any]:
         """Save a topology from the editor (#190); a broken one never gets here (422)."""
+        only_positions = same_lab(new, lab.topology)  # True: the lab doesn't change (#192)
         running = store.running()
-        if running:
+        if running and not only_positions:
             raise HTTPException(
                 409, f"experiment {running.id} is {running.state}, wait until it ends"
             )
-        if lab.state == "restarting":  # two applies at once would overwrite each other
+        # two applies at once would overwrite each other
+        if lab.state == "restarting" and not only_positions:
             raise HTTPException(409, "the lab is restarting, wait until it runs")
         previous = lab.topology
         save(new, lab.path)
         lab.topology = new
+        if only_positions:
+            return await get_topology()  # nothing for the lab to apply
         lab.state = "restarting"  # now, not when the task starts: refuse the next request
         task = asyncio.create_task(lab.apply(previous))
         applying.add(task)

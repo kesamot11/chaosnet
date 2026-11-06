@@ -21,7 +21,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from chaosnet.topology import Topology
+from chaosnet.topology import Topology, same_lab
 
 LAB = Path(__file__).parents[2] / "lab" / "topology.json"
 
@@ -160,3 +160,24 @@ def test_port_out_of_range() -> None:
     data = topology(("s1", "s2"))
     data["services"][0]["port"] = 70000
     assert_rejected(data, "port")
+
+
+def test_same_lab_ignores_only_where_services_are_drawn() -> None:
+    base = Topology.model_validate(
+        {
+            "version": 1,
+            "services": [{"name": "gateway", "port": 8080}, {"name": "orders"}],
+            "links": [{"from": "gateway", "to": "orders"}],
+        }
+    )
+    moved = base.model_copy(deep=True)
+    moved.services[1].x, moved.services[1].y = 300.0, 80.0
+    assert same_lab(base, moved)
+
+    slower = base.model_copy(deep=True)
+    slower.links[0].timeout_s = 5.0
+    assert not same_lab(base, slower)
+
+    renamed = moved.model_copy(deep=True)
+    renamed.services[0].port = 9090
+    assert not same_lab(base, renamed)

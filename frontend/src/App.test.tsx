@@ -1,8 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { App } from "./App";
-import type { Experiment, Topology } from "./api";
+import { App, LabLine } from "./App";
+import type { Experiment, LabStatus, Topology } from "./api";
 import recorded from "./fixtures/latency-200ms.json";
+import { POLL_MS } from "./useExperiment";
 
 const LAB: Topology = {
   version: 1,
@@ -27,7 +28,11 @@ afterEach(() => {
 });
 
 test("shows the lab from the controller", async () => {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(LAB))));
+  // one Response per request: a body can be read only once
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve(new Response(JSON.stringify(LAB)))),
+  );
   render(<App />);
   expect(await screen.findByText("gateway :8080")).toBeInTheDocument();
   expect(screen.getByText(/Click a link/)).toBeInTheDocument();
@@ -114,4 +119,62 @@ test("an experiment started before the list arrives is the one followed", async 
   });
   expect(screen.getByRole("heading", { name: /^mine: completed/ })).toBeInTheDocument();
   expect(fetch).not.toHaveBeenCalledWith("/api/experiments/6", expect.anything());
+});
+
+test("what the user is told about the lab, in each state (#192)", () => {
+  const cases: [LabStatus, string][] = [
+    [{ state: "restarting", error: null }, "The lab is restarting, hold on a moment…"],
+    [
+      { state: "failed", error: "port is already allocated" },
+      "The lab failed: port is already allocated",
+    ],
+    [
+      { state: "running", error: "container payments is unhealthy" },
+      "The last change failed, so the previous lab is back: container payments is unhealthy",
+    ],
+    [{ state: "running", error: null }, "The lab is running."],
+  ];
+  for (const [lab, text] of cases) {
+    const { container, unmount } = render(<LabLine lab={lab} />);
+    expect(container.textContent).toBe(text);
+    unmount();
+  }
+});
+
+test("when a restart ends, the topology is loaded again: it may have been rolled back", async () => {
+  const states: LabStatus[] = [
+    { state: "running", error: null },
+    { state: "restarting", error: null },
+    { state: "restarting", error: null },
+    { state: "running", error: "container payments is unhealthy" },
+  ];
+  let topologyRequests = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((path: string) => {
+      if (path === "/api/topology") topologyRequests++;
+      const body =
+        path === "/api/lab"
+          ? (states.shift() ?? states.at(-1))
+          : path === "/api/experiments"
+            ? []
+            : LAB;
+      return Promise.resolve(new Response(JSON.stringify(body)));
+    }),
+  );
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    render(<App />);
+    expect(await screen.findByText("The lab is running.")).toBeInTheDocument();
+    expect(topologyRequests).toBe(1); // the page's own load
+    await vi.advanceTimersByTimeAsync(POLL_MS); // restarting
+    await vi.advanceTimersByTimeAsync(POLL_MS); // still restarting: no reload yet
+    expect(screen.getByText(/restarting/)).toBeInTheDocument();
+    expect(topologyRequests).toBe(1);
+    await vi.advanceTimersByTimeAsync(POLL_MS); // ended, rolled back
+    expect(await screen.findByRole("alert")).toHaveTextContent("previous lab is back");
+    expect(topologyRequests).toBe(2);
+  } finally {
+    vi.useRealTimers();
+  }
 });
