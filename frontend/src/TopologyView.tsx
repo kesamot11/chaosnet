@@ -12,14 +12,23 @@ type Props = {
   selected: string | null; // name of the selected link, e.g. "orders-inventory"
   onSelect: (link: string) => void;
   onMove: (service: string, position: Point) => void; // a service was dragged and dropped (#192)
+  service?: string | null; // the selected service (#193)
+  onSelectService?: (service: string) => void;
 };
 
 /** The lab as a graph: services are nodes, links are edges; click an edge to select it. */
-export function TopologyView({ topology, selected, onSelect, onMove }: Props) {
+export function TopologyView({
+  topology,
+  selected,
+  onSelect,
+  onMove,
+  service = null,
+  onSelectService = () => {},
+}: Props) {
   // While a node is dragged, React Flow moves it in this state; a new topology (a save,
   // a rollback) replaces it.
-  const [nodes, setNodes, onNodesChange] = useNodesState(toNodes(topology));
-  useEffect(() => setNodes(toNodes(topology)), [topology, setNodes]);
+  const [nodes, setNodes, onNodesChange] = useNodesState(toNodes(topology, service));
+  useEffect(() => setNodes(toNodes(topology, service)), [topology, service, setNodes]);
 
   const edges: Edge[] = topology.links.map((link) => ({
     id: link.name,
@@ -44,6 +53,7 @@ export function TopologyView({ topology, selected, onSelect, onMove }: Props) {
         edges={edges}
         onNodesChange={onNodesChange}
         onNodeDragStop={(_, node) => onMove(node.id, node.position)}
+        onNodeClick={(_, node) => onSelectService(node.id)}
         onEdgeClick={(_, edge) => handleEdgeClick(topology.links.find((l) => l.name === edge.id))}
         fitView
       />
@@ -52,7 +62,7 @@ export function TopologyView({ topology, selected, onSelect, onMove }: Props) {
 }
 
 /** A node per service, where it was dropped (x, y) or else where layout.ts puts it. */
-export function toNodes(topology: Topology): Node[] {
+export function toNodes(topology: Topology, selected: string | null = null): Node[] {
   const positions = layout(topology);
   return topology.services.map((service) => ({
     id: service.name,
@@ -61,6 +71,7 @@ export function toNodes(topology: Topology): Node[] {
         ? { x: service.x, y: service.y }
         : (positions[service.name] ?? { x: 0, y: 0 }),
     data: { label: service.port ? `${service.name} :${service.port}` : service.name },
+    style: service.name === selected ? { borderColor: "#d4537e", borderWidth: 2 } : undefined,
     // Edges go left to right, so connect on the left and right side of each node.
     sourcePosition: Position.Right,
     targetPosition: Position.Left,

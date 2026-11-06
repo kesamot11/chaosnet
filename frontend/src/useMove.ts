@@ -1,5 +1,6 @@
 import { type Dispatch, type SetStateAction, useRef, useState } from "react";
 import { saveTopology, type Topology } from "./api";
+import { withPosition } from "./edit";
 import type { Position } from "./layout";
 
 /**
@@ -21,11 +22,7 @@ export function useMove(
   function move(service: string, position: Position) {
     if (topology === null) return;
     const before = topology;
-    const at = { x: Math.round(position.x), y: Math.round(position.y) }; // a readable file
-    const moved: Topology = {
-      ...topology,
-      services: topology.services.map((s) => (s.name === service ? { ...s, ...at } : s)),
-    };
+    const moved = withPosition(topology, service, position);
     setTopology(moved);
     drops.current += 1;
     const drop = drops.current;

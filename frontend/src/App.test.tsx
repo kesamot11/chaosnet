@@ -178,3 +178,101 @@ test("when a restart ends, the topology is loaded again: it may have been rolled
     vi.useRealTimers();
   }
 });
+
+test("services are added and removed in a draft, applied only by Save (#193)", async () => {
+  const puts: Topology[] = [];
+  const reply = (body: unknown, status = 200) =>
+    Promise.resolve(new Response(JSON.stringify(body), { status }));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((path: string, init?: RequestInit) => {
+      if (init?.method === "PUT") {
+        const sent = JSON.parse(init.body as string) as Topology;
+        puts.push(sent);
+        if (sent.services.some((s) => s.name === "Pay Ments")) {
+          const msg = "Value error, wrong syntax for service with name 'Pay Ments'";
+          return reply({ detail: [{ loc: ["body"], msg }] }, 422);
+        }
+        return reply(sent);
+      }
+      if (path === "/api/lab") return reply({ state: "running", error: null });
+      if (path === "/api/experiments") return reply([]);
+      return reply(LAB);
+    }),
+  );
+  render(<App />);
+  const save = await screen.findByRole("button", { name: "Save" });
+  expect(save).toBeDisabled(); // nothing to save yet
+
+  fireEvent.change(screen.getByLabelText("New service"), { target: { value: "Pay Ments" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
+  expect(await screen.findByText("Pay Ments")).toBeInTheDocument(); // drawn from the draft
+  expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+  expect(puts).toHaveLength(0); // not sent before Save
+
+  fireEvent.click(save);
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    /^Not saved: wrong syntax for service with name 'Pay Ments'$/,
+  );
+  expect(screen.getByText("Pay Ments")).toBeInTheDocument(); // the draft is kept to fix
+
+  // select orders and remove it: its link to gateway goes with it
+  const orders = document.querySelector('.react-flow__node[data-id="orders"]');
+  if (!orders) throw new Error("orders is not drawn");
+  fireEvent.click(orders);
+  fireEvent.click(screen.getByRole("button", { name: "Remove orders" }));
+  expect(screen.queryByText("orders")).not.toBeInTheDocument();
+  const payments = document.querySelector('.react-flow__node[data-id="Pay Ments"]');
+  if (!payments) throw new Error("Pay Ments is not drawn");
+  fireEvent.click(payments);
+  fireEvent.click(screen.getByRole("button", { name: "Remove Pay Ments" }));
+
+  fireEvent.click(save);
+  await waitFor(() => expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument());
+  expect(puts.at(-1)?.services.map((s) => s.name)).toEqual(["gateway"]);
+  expect(puts.at(-1)?.links).toEqual([]); // gateway-orders went with orders
+});
+
+test("one thing is selected at a time, and never one that is gone (Tomáš's review)", async () => {
+  let lab: Topology = LAB;
+  const states: LabStatus[] = [{ state: "running", error: null }];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((path: string) => {
+      const body =
+        path === "/api/lab"
+          ? (states.shift() ?? { state: "running", error: null })
+          : path === "/api/experiments"
+            ? []
+            : lab;
+      return Promise.resolve(new Response(JSON.stringify(body)));
+    }),
+  );
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    render(<App />);
+    const edge = await waitFor(() => {
+      const e = document.querySelector('[data-id="gateway-orders"]');
+      if (!e) throw new Error("the link is not drawn yet");
+      return e;
+    });
+    fireEvent.click(edge);
+    expect(screen.getByText("Selected link: gateway-orders")).toBeInTheDocument();
+
+    const orders = document.querySelector('.react-flow__node[data-id="orders"]');
+    if (!orders) throw new Error("orders is not drawn");
+    fireEvent.click(orders);
+    expect(screen.getByRole("button", { name: "Remove orders" })).toBeInTheDocument();
+    expect(screen.queryByText(/Selected link/)).not.toBeInTheDocument(); // the link is not
+
+    // a restart that ends without orders (a rollback): its selection goes with it
+    lab = { ...LAB, services: LAB.services.filter((s) => s.name !== "orders"), links: [] };
+    states.push({ state: "restarting", error: null }, { state: "running", error: "rolled back" });
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    await waitFor(() => expect(screen.queryByText("orders")).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Remove orders" })).not.toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+  }
+});
