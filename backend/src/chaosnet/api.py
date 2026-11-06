@@ -23,6 +23,7 @@ from fastapi import FastAPI, HTTPException
 from chaosnet.experiments import ExperimentSpec, LoadSpec, State
 from chaosnet.fault_cli import send_heartbeat
 from chaosnet.faults import FaultDriver, FaultError
+from chaosnet.lab import save
 from chaosnet.loadgen import run_load, summarize
 from chaosnet.runner import Runner, reconcile
 from chaosnet.store import RUNNING, Experiment, ExperimentAlreadyRunning, Store
@@ -98,9 +99,7 @@ def create_app(
             raise HTTPException(
                 409, f"experiment {running.id} is {running.state}, wait until it ends"
             )
-        tmp = topology_path.with_suffix(".json.tmp")
-        tmp.write_text(new.model_dump_json(by_alias=True, indent=2))
-        os.replace(tmp, topology_path)
+        save(new, topology_path)
         topology = new
         return await get_topology()
 
