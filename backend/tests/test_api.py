@@ -241,6 +241,17 @@ WITH_PAYMENTS: dict[str, Any] = {
 }
 
 
+# The same lab as WITH_PAYMENTS: payments only drawn elsewhere, or its link slower.
+MOVED_PAYMENTS: dict[str, Any] = {
+    **WITH_PAYMENTS,
+    "services": [*WITH_PAYMENTS["services"][:-1], {"name": "payments", "x": 300.0, "y": 80.0}],
+}
+SLOWER_PAYMENTS: dict[str, Any] = {
+    **WITH_PAYMENTS,
+    "links": [*WITH_PAYMENTS["links"][:-1], {"from": "orders", "to": "payments", "timeout_s": 2.0}],
+}
+
+
 def test_a_saved_topology_is_the_one_used_from_then_on(tmp_path: Path) -> None:
     async def test(client: httpx.AsyncClient, lab: Lab) -> None:
         res = await client.put("/topology", json=WITH_PAYMENTS)
@@ -315,7 +326,7 @@ def test_a_saved_topology_is_applied_in_the_background(tmp_path: Path) -> None:
         assert (await client.put("/topology", json=WITH_PAYMENTS)).status_code == 200
         assert (await client.get("/lab")).json()["state"] == "restarting"
         # ADR-011: no second apply, no experiment while the lab restarts
-        res = await client.put("/topology", json=WITH_PAYMENTS)
+        res = await client.put("/topology", json=SLOWER_PAYMENTS)
         assert (res.status_code, res.json()["detail"]) == (
             409,
             "the lab is restarting, wait until it runs",
@@ -369,5 +380,39 @@ def test_when_going_back_fails_too_the_lab_is_failed(tmp_path: Path) -> None:
         # saving is how the user repairs it
         assert (await client.put("/topology", json=WITH_PAYMENTS)).status_code == 200
         assert (await lab_state(client, "running"))["error"] is None
+
+    run(tmp_path, test, compose=compose)
+
+
+def test_moving_services_saves_them_without_touching_the_lab(tmp_path: Path) -> None:
+    # #192 (Tomáš): only positions changed -> saved, not applied; allowed while an
+    # experiment runs and while the lab restarts.
+    compose = FakeCompose()
+
+    async def test(client: httpx.AsyncClient, lab: Lab) -> None:
+        await client.put("/topology", json=WITH_PAYMENTS)
+        await lab_state(client, "running")
+
+        exp = (await client.post("/experiments", json=SLOW)).json()
+        res = await client.put("/topology", json=MOVED_PAYMENTS)
+        assert res.status_code == 200
+        assert res.json()["services"][-1] | {"x": 300.0, "y": 80.0} == res.json()["services"][-1]
+        assert (await client.get("/lab")).json()["state"] == "running"  # not applied
+        saved = Topology.model_validate_json((tmp_path / "topology.json").read_text())
+        assert (saved.services[-1].x, saved.services[-1].y) == (300.0, 80.0)
+        res = await client.put("/topology", json=SLOWER_PAYMENTS)
+        assert res.status_code == 409  # a change of the lab still waits for the experiment
+        await client.post(f"/experiments/{exp['id']}/abort")
+
+        compose.gate = asyncio.Event()
+        await client.put("/topology", json=WITH_PAYMENTS)  # positions back: still not applied
+        await client.put("/topology", json=SLOWER_PAYMENTS)  # applied: restarting
+        assert (await client.get("/lab")).json()["state"] == "restarting"
+        moved = {**SLOWER_PAYMENTS, "services": MOVED_PAYMENTS["services"]}
+        assert (await client.put("/topology", json=moved)).status_code == 200  # only moved
+        assert (await client.put("/topology", json=MOVED_PAYMENTS)).status_code == 409  # lab
+        assert (await client.get("/lab")).json()["state"] == "restarting"
+        compose.gate.set()
+        await lab_state(client, "running")
 
     run(tmp_path, test, compose=compose)
