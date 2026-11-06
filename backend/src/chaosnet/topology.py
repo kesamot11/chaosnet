@@ -19,6 +19,9 @@ LATEST_VERSION = 1
 class Service(BaseModel):
     name: str
     port: int | None = Field(default=None, ge=1, le=65535)  # published on the Mac: the entry
+    # Where the editor draws it (#192); the lab ignores it. None: placed by layout.ts.
+    x: float | None = None
+    y: float | None = None
 
 
 class Link(BaseModel):
@@ -94,3 +97,15 @@ def check(topology: Topology) -> None:
     # services, remember finished services if topologies ever grow large.
     for s in topology.services:  # the file's order, so the same topology gives the same message
         walk(s.name, [])
+
+
+def same_lab(a: Topology, b: Topology) -> bool:
+    """True when ``a`` and ``b`` differ at most in where the editor draws the services.
+
+    Then saving changes nothing in the lab, so nothing is applied (#192, decided by Tomáš).
+    """
+
+    def lab(topology: Topology) -> dict[str, object]:
+        return topology.model_dump(exclude={"services": {"__all__": {"x", "y"}}})
+
+    return lab(a) == lab(b)
