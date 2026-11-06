@@ -23,7 +23,7 @@ from fastapi import FastAPI, HTTPException
 from chaosnet.experiments import ExperimentSpec, LoadSpec, State
 from chaosnet.fault_cli import send_heartbeat
 from chaosnet.faults import FaultDriver, FaultError
-from chaosnet.lab import save
+from chaosnet.lab import Lab, compose_up, save
 from chaosnet.loadgen import run_load, summarize
 from chaosnet.runner import Runner, reconcile
 from chaosnet.store import RUNNING, Experiment, ExperimentAlreadyRunning, Store
@@ -37,12 +37,10 @@ MakeRunner = Callable[[LoadSpec], Runner]
 LAB_TOPOLOGY = Path(__file__).parents[3] / "lab" / "topology.json"
 
 
-def create_app(
-    store: Store, make_runner: MakeRunner, topology_path: Path, driver: FaultDriver
-) -> FastAPI:
-    """``topology_path`` is the lab's topology: read here, rewritten by PUT /topology (#190)."""
+def create_app(store: Store, make_runner: MakeRunner, lab: Lab, driver: FaultDriver) -> FastAPI:
+    """``lab`` holds the topology in effect and whether the lab runs (#190, #191)."""
     tasks: dict[int, asyncio.Task[None]] = {}
-    topology = Topology.model_validate_json(topology_path.read_text())
+    applying: set[asyncio.Task[None]] = set()  # kept, or the event loop may drop the task
 
     async def abort(experiment_id: int) -> None:
         task = tasks.get(experiment_id)
@@ -64,7 +62,9 @@ def create_app(
 
     @app.post("/experiments", status_code=201)
     async def start(spec: ExperimentSpec) -> Experiment:
-        links = {link.name for link in topology.links}
+        if lab.state != "running":  # ADR-011, decision 5
+            raise HTTPException(409, f"the lab is {lab.state}, not running")
+        links = {link.name for link in lab.topology.links}
         if spec.fault.link not in links:
             # Found here, not after the baseline was measured (ADR-004 consequences).
             raise HTTPException(
@@ -85,23 +85,34 @@ def create_app(
             proxies: set[str] = await driver.links()
         except httpx.TransportError, FaultError:
             proxies = set()  # Toxiproxy down: no link can take a fault right now
-        result = topology.model_dump(by_alias=True)
-        for link, data in zip(topology.links, result["links"], strict=True):
+        result = lab.topology.model_dump(by_alias=True)
+        for link, data in zip(lab.topology.links, result["links"], strict=True):
             data |= {"name": link.name, "available": link.name in proxies}
         return result
 
     @app.put("/topology")
     async def put_topology(new: Topology) -> dict[str, Any]:
         """Save a topology from the editor (#190); a broken one never gets here (422)."""
-        nonlocal topology
         running = store.running()
         if running:
             raise HTTPException(
                 409, f"experiment {running.id} is {running.state}, wait until it ends"
             )
-        save(new, topology_path)
-        topology = new
+        if lab.state == "restarting":  # two applies at once would overwrite each other
+            raise HTTPException(409, "the lab is restarting, wait until it runs")
+        previous = lab.topology
+        save(new, lab.path)
+        lab.topology = new
+        lab.state = "restarting"  # now, not when the task starts: refuse the next request
+        task = asyncio.create_task(lab.apply(previous))
+        applying.add(task)
+        task.add_done_callback(applying.discard)
         return await get_topology()
+
+    @app.get("/lab")
+    async def get_lab() -> dict[str, str | None]:
+        """Whether the lab runs (#191); the UI polls it after a save."""
+        return {"state": lab.state, "error": lab.error}
 
     @app.get("/experiments")
     async def list_experiments() -> list[Experiment]:
@@ -160,8 +171,12 @@ async def serve() -> None:
                 return Runner(store, driver, measure, heartbeat)
 
             path = Path(os.environ.get("CHAOSNET_TOPOLOGY", LAB_TOPOLOGY))
-            app = create_app(store, make_runner, path, driver)
+            lab = Lab(path, compose_up)
+            app = create_app(store, make_runner, lab, driver)
+            # The file is the truth: bring the lab to it, also after a crash mid-apply (#191).
+            startup = asyncio.create_task(lab.apply(None))
             await uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port)).serve()
+            startup.cancel()
 
 
 def main() -> None:

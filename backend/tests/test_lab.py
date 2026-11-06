@@ -1,11 +1,12 @@
 import asyncio
 import os
+import shutil
 import stat
 from pathlib import Path
 
 import pytest
 
-from chaosnet.lab import LabError, compose_up
+from chaosnet.lab import Lab, LabError, compose_up
 
 # A `docker` on PATH that records its arguments and fails when told to.
 FAKE_DOCKER = """#!/bin/sh
@@ -44,3 +45,17 @@ def test_compose_up_fails_with_compose_output(
     with pytest.raises(LabError, match="^container payments is unhealthy$"):
         asyncio.run(compose_up(tmp_path))
     assert len(docker.read_text().splitlines()) == 1  # stopped at the first failure
+
+
+def test_a_lab_that_fails_at_controller_start_is_failed(tmp_path: Path) -> None:
+    # Controller start (#191): apply the file with nothing to go back to.
+    topology = tmp_path / "topology.json"
+    shutil.copy(Path(__file__).parents[2] / "lab" / "topology.json", topology)
+
+    async def compose(lab_dir: Path) -> None:
+        raise LabError("Cannot connect to the Docker daemon")
+
+    lab = Lab(topology, compose)
+    asyncio.run(lab.apply(None))
+    assert (lab.state, lab.error) == ("failed", "Cannot connect to the Docker daemon")
+    assert (tmp_path / "compose.yaml").exists()  # generated from the file before starting
