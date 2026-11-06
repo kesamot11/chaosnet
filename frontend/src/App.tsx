@@ -32,11 +32,14 @@ export function App() {
 
   // A dropped service is saved at once (#192, Tomáš): only its position changed, so the
   // controller saves it without touching the lab. Refused: it goes back where it was.
+  // ponytail: two drops whose answers come back in the wrong order show the older one until a
+  // reload (the file is right); on localhost an answer takes ms. Queue the saves if it bites.
   async function move(service: string, position: Position) {
     if (topology === null) return;
+    const at = { x: Math.round(position.x), y: Math.round(position.y) }; // whole pixels: a readable file
     const moved: Topology = {
       ...topology,
-      services: topology.services.map((s) => (s.name === service ? { ...s, ...position } : s)),
+      services: topology.services.map((s) => (s.name === service ? { ...s, ...at } : s)),
     };
     setTopology(moved);
     const saved = await saveTopology(moved);
