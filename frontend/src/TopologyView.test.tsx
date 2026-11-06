@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 import type { Topology } from "./api";
-import { TopologyView } from "./TopologyView";
+import { TopologyView, toNodes } from "./TopologyView";
 
 const LAB: Topology = {
   version: 1,
@@ -37,7 +37,7 @@ function clickLink(name: string) {
 }
 
 test("draws every service and link", async () => {
-  render(<TopologyView topology={LAB} selected={null} onSelect={() => {}} />);
+  render(<TopologyView topology={LAB} selected={null} onSelect={() => {}} onMove={() => {}} />);
   expect(await screen.findByText("gateway :8080")).toBeInTheDocument();
   expect(screen.getByText("orders")).toBeInTheDocument();
   expect(screen.getByText("inventory")).toBeInTheDocument();
@@ -47,7 +47,7 @@ test("draws every service and link", async () => {
 
 test("clicking an available link selects it", async () => {
   const onSelect = vi.fn();
-  render(<TopologyView topology={LAB} selected={null} onSelect={onSelect} />);
+  render(<TopologyView topology={LAB} selected={null} onSelect={onSelect} onMove={() => {}} />);
   await screen.findByText("0.5 s, 2 retries");
   clickLink("orders-inventory");
   expect(onSelect).toHaveBeenCalledWith("orders-inventory");
@@ -55,8 +55,19 @@ test("clicking an available link selects it", async () => {
 
 test("a link without a proxy cannot be selected", async () => {
   const onSelect = vi.fn();
-  render(<TopologyView topology={LAB} selected={null} onSelect={onSelect} />);
+  render(<TopologyView topology={LAB} selected={null} onSelect={onSelect} onMove={() => {}} />);
   await screen.findByText("no proxy");
   clickLink("gateway-orders");
   expect(onSelect).not.toHaveBeenCalled();
+});
+
+test("a service drawn where it was dropped, the others where layout.ts puts them (#192)", () => {
+  const moved: Topology = {
+    ...LAB,
+    services: LAB.services.map((s) => (s.name === "orders" ? { ...s, x: 40, y: 250 } : s)),
+  };
+  const positions = Object.fromEntries(toNodes(moved).map((n) => [n.id, n.position]));
+  expect(positions.orders).toEqual({ x: 40, y: 250 });
+  expect(positions.gateway).toEqual({ x: 0, y: 0 }); // column 0, row 0
+  expect(positions.inventory).toEqual({ x: 600, y: 0 }); // column 2
 });

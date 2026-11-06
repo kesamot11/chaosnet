@@ -3,7 +3,13 @@
 // Jaeger's UI, published by the lab on this port (#157); a trace opens at /trace/<id>.
 export const JAEGER = "http://127.0.0.1:16686";
 
-export type Service = { name: string; port: number | null };
+export type Service = {
+  name: string;
+  port: number | null;
+  // Where the editor draws it (#192); null or missing: placed by layout.ts.
+  x?: number | null;
+  y?: number | null;
+};
 
 export type Link = {
   from: string;
@@ -108,6 +114,35 @@ export async function fetchExperiment(id: number, signal?: AbortSignal): Promise
   const res = await fetch(`/api/experiments/${id}`, { signal });
   if (!res.ok) throw new Error(`GET /experiments/${id} failed: HTTP ${res.status}`);
   return (await res.json()) as Experiment;
+}
+
+/** The controller's answer to a save: the topology as saved, or why not (#190, #192). */
+export type Saved = { ok: true; topology: Topology } | { ok: false; reason: string };
+
+/** Save a topology; a change of the lab is then applied in the background (GET /lab). */
+export async function saveTopology(topology: Topology): Promise<Saved> {
+  let res: Response;
+  try {
+    res = await fetch("/api/topology", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(topology),
+    });
+  } catch (e) {
+    return { ok: false, reason: `Controller not reachable: ${e instanceof Error ? e.message : e}` };
+  }
+  if (res.ok) return { ok: true, topology: (await res.json()) as Topology };
+  return { ok: false, reason: await refusal(res) };
+}
+
+export type LabState = "running" | "restarting" | "failed";
+/** GET /lab (#191): whether the lab runs; `error` also when running after a rollback. */
+export type LabStatus = { state: LabState; error: string | null };
+
+export async function fetchLab(signal?: AbortSignal): Promise<LabStatus> {
+  const res = await fetch("/api/lab", { signal });
+  if (!res.ok) throw new Error(`GET /lab failed: HTTP ${res.status}`);
+  return (await res.json()) as LabStatus;
 }
 
 async function post(path: string, body?: unknown): Promise<Answer> {

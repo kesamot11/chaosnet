@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
-import { abortExperiment, fetchExperiments, fetchTopology, type Topology } from "./api";
+import {
+  abortExperiment,
+  fetchExperiments,
+  fetchTopology,
+  saveTopology,
+  type Topology,
+} from "./api";
 import { ExperimentForm } from "./ExperimentForm";
 import { ExperimentStatus } from "./ExperimentStatus";
 import { LatencyChart } from "./LatencyChart";
+import type { Position } from "./layout";
 import { TopologyView } from "./TopologyView";
 import { useExperiment } from "./useExperiment";
 
@@ -13,6 +20,21 @@ export function App() {
   // The experiment started last; it outlives the form, which follows the selected link.
   const [experimentId, setExperimentId] = useState<number | null>(null);
   const { experiment, unreachable } = useExperiment(experimentId);
+  const [notSaved, setNotSaved] = useState<string | null>(null);
+
+  // A dropped service is saved at once (#192, Tomáš): only its position changed, so the
+  // controller saves it without touching the lab. Refused: it goes back where it was.
+  async function move(service: string, position: Position) {
+    if (topology === null) return;
+    const moved: Topology = {
+      ...topology,
+      services: topology.services.map((s) => (s.name === service ? { ...s, ...position } : s)),
+    };
+    setTopology(moved);
+    const saved = await saveTopology(moved);
+    setTopology(saved.ok ? saved.topology : topology);
+    setNotSaved(saved.ok ? null : saved.reason);
+  }
 
   useEffect(() => {
     const request = new AbortController();
@@ -44,7 +66,13 @@ export function App() {
       {error === null && topology === null && <p>Loading the lab…</p>}
       {topology !== null && (
         <>
-          <TopologyView topology={topology} selected={selected} onSelect={setSelected} />
+          <TopologyView
+            topology={topology}
+            selected={selected}
+            onSelect={setSelected}
+            onMove={move}
+          />
+          {notSaved !== null && <p role="alert">Not saved: {notSaved}</p>}
           <p>
             {selected === null
               ? "Click a link to choose where the fault goes."
