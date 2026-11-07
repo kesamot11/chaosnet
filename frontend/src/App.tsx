@@ -137,7 +137,12 @@ export function App() {
           </p>
           {link?.available && <ExperimentForm link={link.name} onStarted={setExperimentId} />}
           {link !== undefined && !link.available && (
-            <p>Save the lab, then you can add a fault here.</p>
+            // a drawn link gets its proxy on Save; a saved one has lost it (Tomáš's review)
+            <p>
+              {topology?.links.some((l) => l.name === link.name)
+                ? "This link has no proxy, so no fault can be added."
+                : "Save the lab, then you can add a fault here."}
+            </p>
           )}
           {experiment !== null && (
             <ExperimentStatus

@@ -233,7 +233,7 @@ test("services are added and removed in a draft, applied only by Save (#193)", a
   expect(puts.at(-1)?.links).toEqual([]); // gateway-orders went with orders
 });
 
-test("a link without a proxy has no fault form, and Remove takes it out of the draft", async () => {
+test("a saved link that lost its proxy says so, and Remove takes it out of the draft", async () => {
   const lab: Topology = { ...LAB, links: LAB.links.map((l) => ({ ...l, available: false })) };
   const puts: Topology[] = [];
   vi.stubGlobal(
@@ -256,7 +256,8 @@ test("a link without a proxy has no fault form, and Remove takes it out of the d
     return e;
   });
   fireEvent.click(edge);
-  expect(screen.getByText("Save the lab, then you can add a fault here.")).toBeInTheDocument();
+  // Save would not help: nothing changed (Tomáš's review)
+  expect(screen.getByText("This link has no proxy, so no fault can be added.")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /start/i })).not.toBeInTheDocument();
 
   fireEvent.click(screen.getByRole("button", { name: "Remove link gateway-orders" }));
