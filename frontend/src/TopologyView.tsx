@@ -54,7 +54,7 @@ export function TopologyView({
   }));
 
   return (
-    <section style={{ height: 320 }} aria-label="lab topology">
+    <section className="lab" aria-label="lab topology">
       <ReactFlow
         nodes={nodes}
         edges={edges}
