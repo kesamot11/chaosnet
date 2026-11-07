@@ -20,10 +20,11 @@ const DEFAULTS: FormValues = {
 type Props = {
   link: string; // the link selected in the topology view
   onStarted: (id: number) => void; // the experiment the status view follows (#78)
+  running: boolean; // one experiment at a time: Start waits, and says why (Tomáš, #209)
 };
 
 /** The experiment for one link (#77). On a refusal everything typed stays, with the reason. */
-export function ExperimentForm({ link, onStarted }: Props) {
+export function ExperimentForm({ link, onStarted, running }: Props) {
   const [values, setValues] = useState(DEFAULTS);
   const [sending, setSending] = useState(false); // waiting for the controller's answer
   const [result, setResult] = useState<Answer | null>(null); // null: not started yet
@@ -125,9 +126,12 @@ export function ExperimentForm({ link, onStarted }: Props) {
           />
         </label>
       </fieldset>
-      <button type="submit" className="primary" disabled={sending}>
-        {sending ? "Starting…" : "Start"}
-      </button>
+      <div className="start">
+        <button type="submit" className="primary" disabled={sending || running}>
+          {sending ? "Starting…" : "Start"}
+        </button>
+        {running && <p>An experiment is running.</p>}
+      </div>
       {result?.ok === true && <p>Experiment #{result.experiment.id} started</p>}
       {result?.ok === false && <p role="alert">Not started: {result.reason}</p>}
     </form>

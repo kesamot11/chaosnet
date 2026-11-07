@@ -147,6 +147,7 @@ th {
 td {
   font-family: var(--mono); /* measured numbers line up */
   font-size: 13px;
+  white-space: nowrap; /* 12.5 ms stays one value */
 }
 
 [role="alert"] {
@@ -217,6 +218,10 @@ progress {
   top: 0;
   bottom: 0;
   width: 360px;
+}
+
+.drawer-right {
+  width: 480px; /* the results' tables fit (Tomáš, #209) */
 }
 
 .drawer-left {
@@ -387,4 +392,67 @@ progress {
 
 .drawer-body fieldset input[type="number"] {
   font-family: var(--mono); /* a measured number */
+}
+
+/* Start and why it waits, on one line (Tomáš, #209) */
+.start {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+}
+
+.start p {
+  margin: 0;
+}
+
+/* the verdict, readable at a glance (#209) */
+.verdict {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.verdict.passed {
+  color: var(--ok);
+}
+
+.verdict.failed {
+  color: var(--bad);
+}
+
+/* The experiment's tables (#209): a heading each, air between rows, one line under the
+   header; names in the text font, numbers in mono and right-aligned (Tomáš: "not cramped,
+   clear what is what") */
+.drawer-body h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 24px 0 4px;
+}
+
+.drawer-body table {
+  width: 100%;
+}
+
+.drawer-body th,
+.drawer-body td {
+  padding: 7px 8px;
+  border: 1px solid var(--hairline); /* a full grid (Tomáš, #209) */
+}
+
+.drawer-body thead th {
+  font-size: 12px;
+  font-weight: 500;
+  border-bottom: 1px solid var(--hairline);
+  white-space: nowrap;
+}
+
+.drawer-body tbody th {
+  color: var(--text);
+  font-weight: 400;
+}
+
+.drawer-body td,
+.drawer-body thead th:not(:first-child) {
+  text-align: right;
 }

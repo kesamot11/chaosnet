@@ -54,7 +54,10 @@ export function ExperimentStatus({ experiment, unreachable, onAbort }: Props) {
       {experiment.reason !== null && <p>{experiment.reason}</p>}
       {experiment.verdict !== null && (
         <div>
-          <p>{experiment.verdict.passed ? "passed" : "failed"}</p>
+          {/* readable at a glance (#209) */}
+          <p className={`verdict ${experiment.verdict.passed ? "passed" : "failed"}`}>
+            {experiment.verdict.passed ? "passed" : "failed"}
+          </p>
           <ul>
             {experiment.verdict.reasons.map((r) => (
               <li key={r}>{r}</li>
@@ -62,7 +65,18 @@ export function ExperimentStatus({ experiment, unreachable, onAbort }: Props) {
           </ul>
         </div>
       )}
-      <table>
+      <h3>Results</h3>
+      <table aria-label="results">
+        <thead>
+          <tr>
+            <th>phase</th>
+            <th>p50 ms</th>
+            <th>p95 ms</th>
+            <th>errors %</th>
+            <th>degraded %</th>
+            <th />
+          </tr>
+        </thead>
         <tbody>
           {PHASES.map((p) => {
             const s = experiment.results[p];
@@ -81,10 +95,10 @@ export function ExperimentStatus({ experiment, unreachable, onAbort }: Props) {
                 {s !== undefined && rate === null && <td>no requests</td>}
                 {s !== undefined && rate !== null && (
                   <>
-                    <td>{s.latency_ms.all?.p50.toFixed(1)} ms</td>
-                    <td>{s.latency_ms.all?.p95.toFixed(1)} ms</td>
-                    <td>{(rate * 100).toFixed(1)} %</td>
-                    <td>{((degradedRate(s) ?? 0) * 100).toFixed(1)} % degraded</td>
+                    <td>{s.latency_ms.all?.p50.toFixed(1)}</td>
+                    <td>{s.latency_ms.all?.p95.toFixed(1)}</td>
+                    <td>{(rate * 100).toFixed(1)}</td>
+                    <td>{((degradedRate(s) ?? 0) * 100).toFixed(1)}</td>
                     <td>
                       {s.example_trace && <a href={`${JAEGER}/trace/${s.example_trace}`}>trace</a>}
                     </td>
@@ -105,33 +119,36 @@ function Settings({ links }: { links: LinkSettings[] | null }) {
   if (links === null) return <p>Settings were not recorded for this experiment.</p>;
   const onOff = (on: boolean) => (on ? "on" : "off");
   return (
-    <table aria-label="settings">
-      <thead>
-        <tr>
-          <th>link</th>
-          <th>timeout</th>
-          <th>retries</th>
-          <th>backoff</th>
-          <th>breaker</th>
-          <th>retry budget</th>
-          <th>fallback</th>
-        </tr>
-      </thead>
-      <tbody>
-        {links.map((l) => (
-          <tr key={`${l.from}-${l.to}`}>
-            <td>
-              {l.from} → {l.to}
-            </td>
-            <td>{l.timeout_s} s</td>
-            <td>{l.max_retries}</td>
-            <td>{l.backoff_s} s</td>
-            <td>{onOff(l.breaker)}</td>
-            <td>{l.retry_budget ?? "off"}</td>
-            <td>{onOff(l.fallback)}</td>
+    <>
+      <h3>Settings when it ran</h3>
+      <table aria-label="settings">
+        <thead>
+          <tr>
+            <th>link</th>
+            <th>timeout s</th>
+            <th>retries</th>
+            <th>backoff s</th>
+            <th>breaker</th>
+            <th>budget</th>
+            <th>fallback</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {links.map((l) => (
+            <tr key={`${l.from}-${l.to}`}>
+              <th scope="row">
+                {l.from} → {l.to}
+              </th>
+              <td>{l.timeout_s}</td>
+              <td>{l.max_retries}</td>
+              <td>{l.backoff_s}</td>
+              <td>{onOff(l.breaker)}</td>
+              <td>{l.retry_budget ?? "off"}</td>
+              <td>{onOff(l.fallback)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
   );
 }
