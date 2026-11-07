@@ -36,7 +36,7 @@ export function Editor({ changed, removable, saving, refused, onAdd, onRemove, o
           Remove {removable}
         </button>
       )}
-      <button type="button" disabled={!changed || saving} onClick={onSave}>
+      <button type="button" className="primary" disabled={!changed || saving} onClick={onSave}>
         {saving ? "Saving…" : "Save"}
       </button>
       {changed && <span> Unsaved changes</span>}

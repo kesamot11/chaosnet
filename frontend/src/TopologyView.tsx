@@ -1,4 +1,12 @@
-import { type Edge, type Node, Position, ReactFlow, useNodesState } from "@xyflow/react";
+import {
+  Background,
+  BackgroundVariant,
+  type Edge,
+  type Node,
+  Position,
+  ReactFlow,
+  useNodesState,
+} from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useEffect } from "react";
 import type { Link, Topology } from "./api";
@@ -15,6 +23,7 @@ type Props = {
   service?: string | null; // the selected service (#193)
   onSelectService?: (service: string) => void;
   onConnect?: (from: string, to: string) => void; // a link drawn from a caller to a callee (#194)
+  faulted?: string | null; // the link whose fault is active now, drawn in magenta (#206)
 };
 
 /**
@@ -29,6 +38,7 @@ export function TopologyView({
   service = null,
   onSelectService = () => {},
   onConnect = () => {},
+  faulted = null,
 }: Props) {
   // While a node is dragged, React Flow moves it in this state; a new topology (a save,
   // a rollback) replaces it.
@@ -40,7 +50,7 @@ export function TopologyView({
     source: link.from,
     target: link.to,
     label: link.available ? `${link.timeout_s} s, ${link.max_retries} retries` : "no proxy",
-    style: edgeStyle(link, link.name === selected),
+    style: edgeStyle(link, link.name === selected, link.name === faulted),
   }));
 
   return (
@@ -54,8 +64,12 @@ export function TopologyView({
         // any link, also one without a proxy: it can still be removed (Tomáš)
         onEdgeClick={(_, edge) => onSelect(edge.id)}
         onConnect={(c) => onConnect(c.source, c.target)}
+        colorMode="dark"
         fitView
-      />
+      >
+        {/* light grey dots, evenly spread (Tomáš) */}
+        <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} color="#4a4b52" />
+      </ReactFlow>
     </section>
   );
 }
@@ -70,7 +84,7 @@ export function toNodes(topology: Topology, selected: string | null = null): Nod
         ? { x: service.x, y: service.y }
         : (positions[service.name] ?? { x: 0, y: 0 }),
     data: { label: service.port ? `${service.name} :${service.port}` : service.name },
-    style: service.name === selected ? { borderColor: "#d4537e", borderWidth: 2 } : undefined,
+    style: service.name === selected ? { borderColor: "var(--main)", borderWidth: 2 } : undefined,
     // Edges go left to right, so connect on the left and right side of each node.
     sourcePosition: Position.Right,
     targetPosition: Position.Left,
@@ -92,8 +106,9 @@ export function toNodes(topology: Topology, selected: string | null = null): Nod
   }));
 }
 
-function edgeStyle(link: Link, isSelected: boolean) {
+/** Magenta only while the link's fault is active (Tomáš); violet when selected. */
+function edgeStyle(link: Link, isSelected: boolean, isFaulted: boolean) {
   const dashed = link.available ? {} : { strokeDasharray: "4 4" }; // no proxy
-  if (isSelected) return { stroke: "#d4537e", strokeWidth: 3, ...dashed };
-  return link.available ? { stroke: "#555", strokeWidth: 1.5 } : { stroke: "#999", ...dashed };
+  const stroke = isFaulted ? "var(--fault)" : isSelected ? "var(--main)" : "var(--muted)";
+  return { stroke, strokeWidth: isFaulted || isSelected ? 3 : 1.5, ...dashed };
 }

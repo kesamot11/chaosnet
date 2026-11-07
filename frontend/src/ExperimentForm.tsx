@@ -125,7 +125,7 @@ export function ExperimentForm({ link, onStarted }: Props) {
           />
         </label>
       </fieldset>
-      <button type="submit" disabled={sending}>
+      <button type="submit" className="primary" disabled={sending}>
         {sending ? "Starting…" : "Start"}
       </button>
       {result?.ok === true && <p>Experiment #{result.experiment.id} started</p>}
