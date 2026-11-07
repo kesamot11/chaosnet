@@ -17,7 +17,9 @@ from chaosnet.labgen import (
 )
 from chaosnet.topology import Topology
 
-LAB = Path(__file__).parents[2] / "lab"
+LAB = Path(__file__).parents[2] / "lab"  # read only by the drift check
+# The tests' own copy of the default lab: the editor rewrites lab/ (#200).
+TOPOLOGY = Path(__file__).parent / "topology.json"
 
 
 def topology(*links: tuple[str, str]) -> Topology:
@@ -53,9 +55,22 @@ def test_no_links_no_proxies() -> None:
     assert toxiproxy_config(lone) == []
 
 
-def test_the_default_lab_gives_todays_toxiproxy_json() -> None:
-    lab = Topology.model_validate_json((LAB / "topology.json").read_text())
-    assert toxiproxy_config(lab) == json.loads((LAB / "toxiproxy.json").read_text())
+def test_the_default_lab_gives_a_proxy_per_link() -> None:
+    lab = Topology.model_validate_json(TOPOLOGY.read_text())
+    assert toxiproxy_config(lab) == [
+        {
+            "name": "gateway-orders",
+            "listen": "0.0.0.0:8665",
+            "upstream": "orders:8000",
+            "enabled": True,
+        },
+        {
+            "name": "orders-inventory",
+            "listen": "0.0.0.0:8666",
+            "upstream": "inventory:8000",
+            "enabled": True,
+        },
+    ]
 
 
 # --- service_config ---------------------------------------------------------------------
@@ -66,7 +81,7 @@ def calls(config: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def test_a_service_calls_through_the_proxy_of_its_link() -> None:
-    lab = Topology.model_validate_json((LAB / "topology.json").read_text())
+    lab = Topology.model_validate_json(TOPOLOGY.read_text())
     orders = service_config(lab, "orders")
     assert orders["environment"]["SERVICE_NAME"] == "orders"
     assert calls(orders) == [
@@ -89,7 +104,7 @@ def test_a_service_calls_through_the_proxy_of_its_link() -> None:
 
 
 def test_only_the_entry_publishes_its_port_on_localhost() -> None:
-    lab = Topology.model_validate_json((LAB / "topology.json").read_text())
+    lab = Topology.model_validate_json(TOPOLOGY.read_text())
     assert service_config(lab, "gateway")["ports"] == ["127.0.0.1:${ENTRY_PORT:-8080}:8000"]
 
 
@@ -133,7 +148,7 @@ def test_every_service_calls_exactly_the_ports_toxiproxy_listens_on() -> None:
 
 
 def test_compose_has_the_control_plane_and_every_service() -> None:
-    lab = Topology.model_validate_json((LAB / "topology.json").read_text())
+    lab = Topology.model_validate_json(TOPOLOGY.read_text())
     services = compose_config(lab)["services"]
     assert list(services) == [
         "toxiproxy",
@@ -168,7 +183,7 @@ def test_the_lab_files_are_generated_from_topology_json() -> None:
 
 
 def test_prometheus_scrapes_every_service_by_name() -> None:
-    lab = Topology.model_validate_json((LAB / "topology.json").read_text())
+    lab = Topology.model_validate_json(TOPOLOGY.read_text())
     targets = prometheus_config(lab)["scrape_configs"][0]["static_configs"]
     assert [(t["targets"], t["labels"]) for t in targets] == [
         (["gateway:8000"], {"service": "gateway"}),
@@ -228,7 +243,7 @@ def test_answer_time_is_the_slowest_of_several_links() -> None:
 
 
 def test_the_default_lab_has_no_warning() -> None:
-    lab = Topology.model_validate_json((LAB / "topology.json").read_text())
+    lab = Topology.model_validate_json(TOPOLOGY.read_text())
     assert amplification_warnings(lab) == []
 
 

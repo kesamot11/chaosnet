@@ -23,7 +23,7 @@ from pydantic import ValidationError
 
 from chaosnet.topology import Topology, same_lab
 
-LAB = Path(__file__).parents[2] / "lab" / "topology.json"
+LAB = Path(__file__).parent / "topology.json"  # the default lab; the editor rewrites lab/ (#200)
 
 
 NAMES = ("s1", "s2", "s3", "s4")
@@ -54,7 +54,7 @@ def assert_rejected(data: dict[str, Any], *words: str) -> None:
 # --- valid topologies -------------------------------------------------------------------
 
 
-def test_the_lab_topology_is_valid() -> None:
+def test_the_default_lab_is_valid() -> None:
     lab = Topology.model_validate(json.loads(LAB.read_text()))
     assert [s.name for s in lab.services] == ["gateway", "orders", "inventory"]
     assert [link.name for link in lab.links] == ["gateway-orders", "orders-inventory"]

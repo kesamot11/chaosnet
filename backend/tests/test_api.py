@@ -15,9 +15,8 @@ from chaosnet.runner import Runner
 from chaosnet.store import Store
 from chaosnet.topology import Topology
 
-LAB_TOPOLOGY = Topology.model_validate_json(
-    (Path(__file__).parents[2] / "lab" / "topology.json").read_text()
-)
+# The tests' own copy of the default lab: the editor rewrites lab/topology.json (#200).
+LAB_TOPOLOGY = Topology.model_validate_json((Path(__file__).parent / "topology.json").read_text())
 
 SPEC: dict[str, Any] = {
     "name": "EXP-003",
@@ -237,7 +236,7 @@ def test_experiment_on_a_link_outside_the_topology_is_rejected(tmp_path: Path) -
     run(tmp_path, test)
 
 
-# PUT /topology (#190): the lab from lab/topology.json plus payments, called by orders.
+# PUT /topology (#190): the default lab plus payments, called by orders.
 WITH_PAYMENTS: dict[str, Any] = {
     **LAB_TOPOLOGY.model_dump(by_alias=True),
     "services": [*LAB_TOPOLOGY.model_dump()["services"], {"name": "payments", "port": None}],
