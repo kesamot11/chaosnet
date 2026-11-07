@@ -53,12 +53,12 @@ test("clicking an available link selects it", async () => {
   expect(onSelect).toHaveBeenCalledWith("orders-inventory");
 });
 
-test("a link without a proxy cannot be selected", async () => {
+test("a link without a proxy can be selected too, to remove it (Tomáš, #194)", async () => {
   const onSelect = vi.fn();
   render(<TopologyView topology={LAB} selected={null} onSelect={onSelect} onMove={() => {}} />);
   await screen.findByText("no proxy");
   clickLink("gateway-orders");
-  expect(onSelect).not.toHaveBeenCalled();
+  expect(onSelect).toHaveBeenCalledWith("gateway-orders");
 });
 
 test("a service drawn where it was dropped, the others where layout.ts puts them (#192)", () => {

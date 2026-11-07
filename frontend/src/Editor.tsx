@@ -2,19 +2,19 @@ import { useState } from "react";
 
 type Props = {
   changed: boolean; // the draft differs from the saved topology
-  service: string | null; // the selected service
+  removable: string | null; // what Remove removes: the selected service or link
   saving: boolean;
   refused: string | null; // why the last save was refused
   onAdd: (name: string) => void;
-  onRemove: (name: string) => void;
+  onRemove: () => void;
   onSave: () => void;
 };
 
 /**
- * Change the lab (#193): add and remove services; Save applies the draft (ADR-011). A name is
+ * Change the lab (#193, #194): add and remove services and links; Save applies the draft (ADR-011). A name is
  * checked by the controller on Save, not here: one copy of the rule (Tomáš).
  */
-export function Editor({ changed, service, saving, refused, onAdd, onRemove, onSave }: Props) {
+export function Editor({ changed, removable, saving, refused, onAdd, onRemove, onSave }: Props) {
   const [name, setName] = useState("");
   return (
     <section aria-label="editor">
@@ -31,9 +31,9 @@ export function Editor({ changed, service, saving, refused, onAdd, onRemove, onS
         </label>
         <button type="submit">Add</button>
       </form>
-      {service !== null && (
-        <button type="button" onClick={() => onRemove(service)}>
-          Remove {service}
+      {removable !== null && (
+        <button type="button" onClick={onRemove}>
+          Remove {removable}
         </button>
       )}
       <button type="button" disabled={!changed || saving} onClick={onSave}>

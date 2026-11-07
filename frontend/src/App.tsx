@@ -10,7 +10,7 @@ import {
 import { Editor } from "./Editor";
 import { ExperimentForm } from "./ExperimentForm";
 import { ExperimentStatus } from "./ExperimentStatus";
-import { addService, removeService, withPosition } from "./edit";
+import { addLink, addService, removeLink, removeService, withPosition } from "./edit";
 import { LatencyChart } from "./LatencyChart";
 import { TopologyView } from "./TopologyView";
 import { useExperiment } from "./useExperiment";
@@ -20,7 +20,7 @@ import { useMove } from "./useMove";
 export function App() {
   const [topology, setTopology] = useState<Topology | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // One selected thing at a time, a link (the fault form) or a service (Remove) (Tomáš).
+  // One selected thing at a time, a link (the fault form, Remove) or a service (Remove) (Tomáš).
   const [selection, setSelection] = useState<Selection | null>(null);
   // The experiment started last; it outlives the form, which follows the selected link.
   const [experimentId, setExperimentId] = useState<number | null>(null);
@@ -39,15 +39,32 @@ export function App() {
   const [draft, setDraft] = useState<Topology | null>(null);
   const [saving, setSaving] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
+  const [notAdded, setNotAdded] = useState<string | null>(null); // why a drawn link was not
   const shown = draft ?? topology;
   // A selection counts only while its link or service is shown: a rollback or a removal may
   // take it away, and nothing should point at what is gone.
   const shownSelection = selection !== null && shows(shown, selection) ? selection : null;
   const selected = shownSelection?.kind === "link" ? shownSelection.name : null;
   const service = shownSelection?.kind === "service" ? shownSelection.name : null;
+  const link = shown?.links.find((l) => l.name === selected);
 
   function edit(change: (t: Topology) => Topology) {
     if (shown !== null) setDraft(change(shown));
+    setNotAdded(null); // an old "not added" would read as about this change
+  }
+
+  function connect(from: string, to: string) {
+    if (shown === null) return;
+    const result = addLink(shown, from, to);
+    if (typeof result === "string") setNotAdded(result);
+    else edit(() => result);
+  }
+
+  function remove() {
+    if (shownSelection === null) return;
+    const { kind, name } = shownSelection;
+    edit((t) => (kind === "link" ? removeLink(t, name) : removeService(t, name)));
+    setSelection(null);
   }
 
   async function save() {
@@ -100,17 +117,16 @@ export function App() {
             onMove={draft === null ? move : (s, p) => edit((t) => withPosition(t, s, p))}
             service={service}
             onSelectService={(name) => setSelection({ kind: "service", name })}
+            onConnect={connect}
           />
+          {notAdded !== null && <p role="alert">{notAdded}</p>}
           <Editor
             changed={draft !== null}
-            service={service}
+            removable={selected !== null ? `link ${selected}` : service}
             saving={saving}
             refused={refused}
             onAdd={(name) => edit((t) => addService(t, name))}
-            onRemove={(name) => {
-              edit((t) => removeService(t, name));
-              setSelection(null);
-            }}
+            onRemove={remove}
             onSave={save}
           />
           {notSaved !== null && <p role="alert">Not saved: {notSaved}</p>}
@@ -119,7 +135,10 @@ export function App() {
               ? "Click a link to choose where the fault goes."
               : `Selected link: ${selected}`}
           </p>
-          {selected !== null && <ExperimentForm link={selected} onStarted={setExperimentId} />}
+          {link?.available && <ExperimentForm link={link.name} onStarted={setExperimentId} />}
+          {link !== undefined && !link.available && (
+            <p>Save the lab, then you can add a fault here.</p>
+          )}
           {experiment !== null && (
             <ExperimentStatus
               experiment={experiment}
