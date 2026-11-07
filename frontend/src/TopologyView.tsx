@@ -14,9 +14,13 @@ type Props = {
   onMove: (service: string, position: Point) => void; // a service was dragged and dropped (#192)
   service?: string | null; // the selected service (#193)
   onSelectService?: (service: string) => void;
+  onConnect?: (from: string, to: string) => void; // a link drawn from a caller to a callee (#194)
 };
 
-/** The lab as a graph: services are nodes, links are edges; click an edge to select it. */
+/**
+ * The lab as a graph: services are nodes, links are edges; click an edge to select it, drag
+ * from a node's right side to another's left side to draw a link.
+ */
 export function TopologyView({
   topology,
   selected,
@@ -24,6 +28,7 @@ export function TopologyView({
   onMove,
   service = null,
   onSelectService = () => {},
+  onConnect = () => {},
 }: Props) {
   // While a node is dragged, React Flow moves it in this state; a new topology (a save,
   // a rollback) replaces it.
@@ -35,16 +40,8 @@ export function TopologyView({
     source: link.from,
     target: link.to,
     label: link.available ? `${link.timeout_s} s, ${link.max_retries} retries` : "no proxy",
-    selectable: link.available,
     style: edgeStyle(link, link.name === selected),
   }));
-
-  function handleEdgeClick(link: Link | undefined) {
-    // Only a link with a proxy can take a fault.
-    if (link?.available) {
-      onSelect(link.name);
-    }
-  }
 
   return (
     <section style={{ height: 320 }} aria-label="lab topology">
@@ -54,7 +51,9 @@ export function TopologyView({
         onNodesChange={onNodesChange}
         onNodeDragStop={(_, node) => onMove(node.id, node.position)}
         onNodeClick={(_, node) => onSelectService(node.id)}
-        onEdgeClick={(_, edge) => handleEdgeClick(topology.links.find((l) => l.name === edge.id))}
+        // any link, also one without a proxy: it can still be removed (Tomáš)
+        onEdgeClick={(_, edge) => onSelect(edge.id)}
+        onConnect={(c) => onConnect(c.source, c.target)}
         fitView
       />
     </section>
@@ -94,6 +93,7 @@ export function toNodes(topology: Topology, selected: string | null = null): Nod
 }
 
 function edgeStyle(link: Link, isSelected: boolean) {
-  if (!link.available) return { stroke: "#999", strokeDasharray: "4 4" };
-  return isSelected ? { stroke: "#d4537e", strokeWidth: 3 } : { stroke: "#555", strokeWidth: 1.5 };
+  const dashed = link.available ? {} : { strokeDasharray: "4 4" }; // no proxy
+  if (isSelected) return { stroke: "#d4537e", strokeWidth: 3, ...dashed };
+  return link.available ? { stroke: "#555", strokeWidth: 1.5 } : { stroke: "#999", ...dashed };
 }

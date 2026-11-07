@@ -20,6 +20,27 @@ export function removeService(topology: Topology, name: string): Topology {
   };
 }
 
+/**
+ * The topology with a new link from `from` to `to`, with the controller's defaults (Tomáš:
+ * changed later in the link's settings). A link that is already there, or one from a service
+ * to itself, would be refused only on Save, so it is refused here with why (Tomáš). A cycle
+ * is left to the controller: two arrows against each other can be seen.
+ */
+export function addLink(topology: Topology, from: string, to: string): Topology | string {
+  if (from === to) return "A service cannot call itself.";
+  if (topology.links.some((l) => l.from === from && l.to === to)) {
+    return "This link already exists.";
+  }
+  // no proxy until Save restarts the lab
+  const link = { from, to, timeout_s: 1, max_retries: 0, name: `${from}-${to}`, available: false };
+  return { ...topology, links: [...topology.links, link] };
+}
+
+/** The topology without the link `name`, e.g. "orders-inventory". */
+export function removeLink(topology: Topology, name: string): Topology {
+  return { ...topology, links: topology.links.filter((l) => l.name !== name) };
+}
+
 /** The topology with `service` drawn at `position`, in whole pixels (#192). */
 export function withPosition(
   topology: Topology,

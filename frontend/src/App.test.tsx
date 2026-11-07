@@ -233,6 +233,40 @@ test("services are added and removed in a draft, applied only by Save (#193)", a
   expect(puts.at(-1)?.links).toEqual([]); // gateway-orders went with orders
 });
 
+test("a saved link that lost its proxy says so, and Remove takes it out of the draft", async () => {
+  const lab: Topology = { ...LAB, links: LAB.links.map((l) => ({ ...l, available: false })) };
+  const puts: Topology[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((path: string, init?: RequestInit) => {
+      if (init?.method === "PUT") puts.push(JSON.parse(String(init.body)));
+      const body =
+        path === "/api/lab"
+          ? { state: "running", error: null }
+          : path === "/api/experiments"
+            ? []
+            : (puts.at(-1) ?? lab);
+      return Promise.resolve(new Response(JSON.stringify(body)));
+    }),
+  );
+  render(<App />);
+  const edge = await waitFor(() => {
+    const e = document.querySelector('[data-id="gateway-orders"]');
+    if (!e) throw new Error("the link is not drawn yet");
+    return e;
+  });
+  fireEvent.click(edge);
+  // Save would not help: nothing changed (Tomáš's review)
+  expect(screen.getByText("This link has no proxy, so no fault can be added.")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /start/i })).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Remove link gateway-orders" }));
+  expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(puts).toHaveLength(1));
+  expect(puts.at(-1)?.links).toEqual([]);
+});
+
 test("one thing is selected at a time, and never one that is gone (Tomáš's review)", async () => {
   let lab: Topology = LAB;
   const states: LabStatus[] = [{ state: "running", error: null }];
