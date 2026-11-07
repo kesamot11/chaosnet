@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 import { App, LabLine } from "./App";
 import type { Experiment, LabStatus, Topology } from "./api";
@@ -239,10 +239,14 @@ test("services are added and removed in a draft, applied only by Save (#193)", a
   expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
   expect(puts).toHaveLength(0); // not sent before Save
 
-  fireEvent.click(save);
+  // the top bar's Save works with the editor closed; a refusal opens it (Tomáš, #208)
+  const editor = screen.getByRole("button", { name: "Editor" });
+  expect(editor).toHaveAttribute("aria-expanded", "false");
+  fireEvent.click(within(screen.getByRole("banner")).getByRole("button", { name: "Save" }));
   expect(await screen.findByRole("alert")).toHaveTextContent(
     /^Not saved: wrong syntax for service with name 'Pay Ments'$/,
   );
+  expect(editor).toHaveAttribute("aria-expanded", "true");
   expect(screen.getByText("Pay Ments")).toBeInTheDocument(); // the draft is kept to fix
 
   // select orders and remove it: its link to gateway goes with it
@@ -296,7 +300,9 @@ test("link settings go into the draft, with a warning for Start, and Save sends 
   expect(screen.getByRole("button", { name: "Start" })).toBeEnabled(); // allowed (Tomáš)
 
   fireEvent.change(screen.getByLabelText("Retry budget"), { target: { value: "" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.click(
+    within(screen.getByRole("region", { name: "editor" })).getByRole("button", { name: "Save" }),
+  );
   await waitFor(() => expect(puts).toHaveLength(1));
   expect(puts[0]?.links[0]).toMatchObject({ max_retries: 3, breaker: true, retry_budget: null });
 });
@@ -330,7 +336,9 @@ test("a saved link that lost its proxy says so, and Remove takes it out of the d
 
   fireEvent.click(screen.getByRole("button", { name: "Remove link gateway-orders" }));
   expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  fireEvent.click(
+    within(screen.getByRole("region", { name: "editor" })).getByRole("button", { name: "Save" }),
+  );
   await waitFor(() => expect(puts).toHaveLength(1));
   expect(puts.at(-1)?.links).toEqual([]);
 });
