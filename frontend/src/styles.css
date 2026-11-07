@@ -236,6 +236,8 @@ progress {
   right: 0;
   bottom: 0;
   height: 50%; /* of the stage, until dragged (Tomáš) */
+  /* a dragged height stays in px; when the window shrinks, keep the edge in view (Tomáš, #214) */
+  max-height: calc(100% - 40px);
   z-index: 1; /* under the side drawers */
   border-top-width: 1px;
   transform: translateY(100%);
