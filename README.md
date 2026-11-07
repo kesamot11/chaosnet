@@ -46,8 +46,10 @@ docker compose down
 ```
 
 The lab is generated from `lab/topology.json`: its services, the links between them,
-and each link's timeout and retries. After changing it, generate the lab again and
-restart it (no rebuild: every service runs the same program):
+and each link's timeout and retries. The controller (`chaosnet-api`, below) applies it
+when it starts, and the UI's editor changes and applies it on Save. Without the
+controller, generate the lab again after changing the file and restart it (no rebuild:
+every service runs the same program):
 
 ```bash
 cd backend && uv run chaosnet-lab
@@ -114,6 +116,20 @@ cd frontend
 npm ci --ignore-scripts
 npm run dev        # http://127.0.0.1:5173
 ```
+
+The UI shows the lab as a graph and is also its editor (ADR-011):
+
+- drag a service to place it; positions are saved at once and don't restart the lab,
+- add and remove services, draw a link from a service's right side to another's left
+  side, select a link or a service and remove it,
+- select a link to change its timeout, retries, backoff, retry budget, breaker and
+  fallback, or to run an experiment on it,
+- changes wait as a draft until **Save**, which applies them: the controller checks the
+  topology, regenerates the lab, restarts it and waits until it answers. If the new lab
+  doesn't start, the previous one comes back, with the reason. Save is refused while an
+  experiment runs.
+
+Every experiment records the topology it ran on and shows it with its results.
 
 `make integration` runs the acceptance tests against a real Compose lab (needs Docker).
 
