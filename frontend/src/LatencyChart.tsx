@@ -34,7 +34,7 @@ function Chart({ label, values, max, format, phaseStarts, traces }: ChartProps) 
         width="100%"
         role="img"
         aria-label={label}
-        style={{ overflow: "visible", border: "1px solid #ddd" }}
+        style={{ overflow: "visible", border: "1px solid var(--hairline)" }}
       >
         {phaseStarts.map((start, i) => (
           <g key={start}>
@@ -44,11 +44,11 @@ function Chart({ label, values, max, format, phaseStarts, traces }: ChartProps) 
                 x2={start * step}
                 y1={0}
                 y2={HEIGHT}
-                stroke="#999"
+                style={{ stroke: "var(--muted)" }}
                 strokeDasharray="4 4"
               />
             )}
-            <text x={start * step + 4} y={12} fontSize={10} fill="#666">
+            <text x={start * step + 4} y={12} fontSize={10} style={{ fill: "var(--muted)" }}>
               {PHASE_NAMES[i]}
             </text>
           </g>
@@ -61,7 +61,7 @@ function Chart({ label, values, max, format, phaseStarts, traces }: ChartProps) 
           const y = max === 0 ? HEIGHT : HEIGHT - (v / max) * HEIGHT; // as in segments
           return (
             <a key={trace} href={`${JAEGER}/trace/${trace}`} target="_blank" rel="noreferrer">
-              <circle cx={s * step} cy={y} r={4} fill="#d6336c">
+              <circle cx={s * step} cy={y} r={4} style={{ fill: "var(--main)" }}>
                 <title>
                   second {s}: {format(v)}, open the trace
                 </title>
@@ -72,10 +72,15 @@ function Chart({ label, values, max, format, phaseStarts, traces }: ChartProps) 
         {lines.map((line) => (
           // a line never starts twice at the same x, so its first x is a stable key
           <g key={line[0]?.x}>
-            <polyline points={toPoints(line)} fill="none" stroke="#d6336c" strokeWidth={2} />
+            <polyline
+              points={toPoints(line)}
+              fill="none"
+              style={{ stroke: "var(--main)" }}
+              strokeWidth={2}
+            />
             {line.length === 1 && line[0] && (
               // a lone second is a line of one point, which <polyline> does not draw
-              <circle cx={line[0].x} cy={line[0].y} r={2} fill="#d6336c" />
+              <circle cx={line[0].x} cy={line[0].y} r={2} style={{ fill: "var(--main)" }} />
             )}
           </g>
         ))}

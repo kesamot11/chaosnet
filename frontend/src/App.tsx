@@ -119,6 +119,8 @@ export function App() {
             service={service}
             onSelectService={(name) => setSelection({ kind: "service", name })}
             onConnect={connect}
+            // a fault is in the lab only during inject (Tomáš)
+            faulted={experiment?.state === "inject" ? experiment.spec.fault.link : null}
           />
           {notAdded !== null && <p role="alert">{notAdded}</p>}
           <Editor

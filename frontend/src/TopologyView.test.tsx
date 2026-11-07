@@ -69,6 +69,33 @@ test("a link without a proxy can be selected too, to remove it (Tomáš, #194)",
   expect(onSelect).toHaveBeenCalledWith("gateway-orders");
 });
 
+test("a link is magenta only while its fault is active, else violet when selected (#206)", async () => {
+  const stroke = (name: string) =>
+    (document.querySelector(`[data-id="${name}"] path`) as SVGPathElement | null)?.style.stroke;
+  const { rerender } = render(
+    <TopologyView
+      topology={LAB}
+      selected="orders-inventory"
+      onSelect={() => {}}
+      onMove={() => {}}
+      faulted="orders-inventory"
+    />,
+  );
+  await screen.findByText("0.5 s, 2 retries");
+  expect(stroke("orders-inventory")).toBe("var(--fault)"); // the fault wins over the selection
+
+  rerender(
+    <TopologyView
+      topology={LAB}
+      selected="orders-inventory"
+      onSelect={() => {}}
+      onMove={() => {}}
+    />,
+  );
+  expect(stroke("orders-inventory")).toBe("var(--main)");
+  expect(stroke("gateway-orders")).toBe("var(--muted)");
+});
+
 test("a service drawn where it was dropped, the others where layout.ts puts them (#192)", () => {
   const moved: Topology = {
     ...LAB,

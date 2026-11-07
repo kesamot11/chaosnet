@@ -1,0 +1,173 @@
+/* The dark theme (#206). Palette chosen by Tomáš, after thompsondj.com: dark grey, violet
+   for selection and the main action, magenta only for a link whose fault is active. */
+:root {
+  color-scheme: dark;
+  --page: #151518;
+  --panel: #1f2024;
+  --panel-hover: #2a2b30;
+  --hairline: #2e2f34;
+  --text: #ebebeb;
+  --muted: #a0a0a6;
+  --main: #b489ff;
+  --main-hover: #c8a8ff;
+  --on-main: #1e0f3d;
+  --fault: #e879b9;
+  --ok: #7fd4a8;
+  --bad: #f08a8a;
+  --radius: 8px;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--text);
+}
+
+main {
+  padding: 24px;
+}
+
+h1,
+h2 {
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
+h1 {
+  font-size: 22px;
+}
+
+h2 {
+  font-size: 17px;
+}
+
+a {
+  color: var(--main);
+}
+
+button {
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--hairline);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    transform 0.1s;
+}
+
+button:hover:not(:disabled) {
+  background: var(--panel-hover);
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+button:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+/* the one main action of a part: Save, Start */
+button.primary {
+  background: var(--main);
+  border-color: var(--main);
+  color: var(--on-main);
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--main-hover);
+}
+
+button.primary:disabled {
+  background: var(--panel);
+  border-color: var(--hairline);
+  color: var(--muted);
+}
+
+:focus-visible {
+  outline: 2px solid var(--main);
+  outline-offset: 2px;
+}
+
+input,
+select {
+  font: inherit;
+  font-size: 14px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--hairline);
+  background: var(--page);
+  color: var(--text);
+  transition: border-color 0.15s;
+}
+
+input:hover,
+select:hover {
+  border-color: var(--muted);
+}
+
+input[type="checkbox"] {
+  accent-color: var(--main);
+}
+
+label {
+  color: var(--muted);
+}
+
+fieldset {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  margin: 0 0 12px;
+}
+
+legend {
+  color: var(--text);
+}
+
+table {
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 4px 12px 4px 0;
+  text-align: left;
+}
+
+th {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+td {
+  font-family: var(--mono); /* measured numbers line up */
+  font-size: 13px;
+}
+
+[role="alert"] {
+  color: var(--bad);
+}
+
+progress {
+  accent-color: var(--main);
+}
+
+/* React Flow's dark mode, on our colors */
+.react-flow {
+  --xy-background-color: var(--page);
+  --xy-node-background-color: var(--panel);
+  --xy-node-border: 1px solid var(--hairline);
+  --xy-node-color: var(--text);
+  --xy-edge-label-background-color: var(--page);
+  --xy-edge-label-color: var(--muted);
+  --xy-handle-background-color: var(--muted);
+}
