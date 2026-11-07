@@ -502,3 +502,36 @@ Quiz 10/10, discounted: the right answer was the longest option and nearly alway
   fast as possible, the budget to maximise the chance of success." Refined: the budget
   limits retries but still sends every first attempt; the breaker stops all calls in a
   lasting outage; used together (Envoy, Finagle, gRPC).
+
+---
+
+## 2026-11-07: Sprint 9, the topology editor
+
+- **A config read only at start needs a restart to change**: Toxiproxy (`toxiproxy.json`),
+  Prometheus (`prometheus.yml`) and every lab service (`CALLS`). Without it a new link
+  has no proxy: connection refused.
+- **A long operation answers at once and exposes its state** (async request-reply): PUT
+  saves and says "restarting"; `GET /lab` says how it ended. The state lives on the
+  server, not in one HTTP request that a refresh would lose.
+- **Roll back to the last known good**: restore memory and file, start the previous lab;
+  if that fails too, stop in `failed` with both errors instead of looping.
+- **A snapshot keeps an old record true**: each experiment stores the topology it ran
+  on; `topology.json` is only today's.
+- **`CREATE TABLE IF NOT EXISTS` never changes an existing table**: a new column needs
+  `ALTER TABLE` for old databases (a migration).
+- **A draft lives only in the browser**: the controller knows nothing about it until Save.
+
+---
+
+## 2026-11-07: Sprint 9 interview check
+
+Quiz 5/7 (question 8 voided). Missed: why Toxiproxy and Prometheus restart (config read
+only at start); why `ALTER TABLE` (`IF NOT EXISTS` skips the whole statement). Own words:
+
+- *From Save to "running"?* Atomic write, restart, result: right. Missing: the checks
+  first (422, 409), the immediate answer, `write_lab`, the poll of `GET /lab`.
+- *Why does Save answer before the lab runs?* Thought of a stale topology after a
+  refresh; the real loss is the restart's result. Refined: async request-reply.
+- *A failed topology, a failed rollback?* Right.
+- *Why restart Toxiproxy?* Right after the quiz explanation.
+- *Why store the topology per experiment?* Right; the word is snapshot.
