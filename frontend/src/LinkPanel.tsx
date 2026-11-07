@@ -21,7 +21,7 @@ export function LinkPanel({ link, onChange }: Props) {
           value={link.timeout_s}
           onChange={(e) => onChange({ timeout_s: Number(e.target.value) })}
         />
-      </label>{" "}
+      </label>
       <label>
         Retries{" "}
         <input
@@ -29,7 +29,7 @@ export function LinkPanel({ link, onChange }: Props) {
           value={link.max_retries}
           onChange={(e) => onChange({ max_retries: Number(e.target.value) })}
         />
-      </label>{" "}
+      </label>
       <label>
         Backoff (s){" "}
         <input
@@ -38,7 +38,7 @@ export function LinkPanel({ link, onChange }: Props) {
           value={link.backoff_s}
           onChange={(e) => onChange({ backoff_s: Number(e.target.value) })}
         />
-      </label>{" "}
+      </label>
       <label>
         Retry budget{" "}
         <input
@@ -50,7 +50,7 @@ export function LinkPanel({ link, onChange }: Props) {
             onChange({ retry_budget: e.target.value === "" ? null : Number(e.target.value) })
           }
         />
-      </label>{" "}
+      </label>
       <label>
         <input
           type="checkbox"
@@ -58,7 +58,7 @@ export function LinkPanel({ link, onChange }: Props) {
           onChange={(e) => onChange({ breaker: e.target.checked })}
         />{" "}
         Circuit breaker
-      </label>{" "}
+      </label>
       <label>
         <input
           type="checkbox"

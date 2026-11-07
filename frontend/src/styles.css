@@ -311,9 +311,80 @@ progress {
   margin-top: 12px;
 }
 
+/* a form in a drawer is one column: one field per line (Tomáš, #208) */
 .drawer-body form {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.drawer-body form > button {
+  align-self: flex-start; /* Start keeps its size */
+}
+
+/* The top bar's unsaved changes and Save, at its right end (Tomáš, #208) */
+.unsaved {
+  margin-left: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  color: var(--main);
+}
+
+/* The editor (#208): one column; Save at the end, after what it saves */
+.editor {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.editor form {
+  flex-direction: row; /* the new service and Add, side by side */
   align-items: center;
+}
+
+.editor form label {
+  white-space: nowrap;
+}
+
+.editor form input {
+  width: 140px; /* Add fits on the same line */
+}
+
+.editor .remove {
+  color: var(--bad);
+}
+
+/* fields in a drawer: names on the left, values lined up on the right */
+.drawer-body fieldset {
+  align-self: stretch;
+  display: grid;
+  gap: 10px;
+  padding: 12px 16px 16px;
+  margin: 0;
+}
+
+.drawer-body fieldset label,
+.drawer-body form > label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.drawer-body fieldset label:has(input[type="checkbox"]) {
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.drawer-body fieldset input:not([type="checkbox"]),
+.drawer-body fieldset select {
+  width: 104px;
+  box-sizing: border-box;
+}
+
+.drawer-body fieldset input[type="number"] {
+  font-family: var(--mono); /* a measured number */
 }

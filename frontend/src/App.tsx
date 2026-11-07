@@ -82,6 +82,7 @@ export function App() {
     const saved = await saveTopology(draft);
     setSaving(false);
     setRefused(saved.ok ? null : saved.reason);
+    if (!saved.ok) setOpen((o) => ({ ...o, left: true })); // why, next to what to fix (Tomáš, #208)
     if (saved.ok) {
       setTopology(saved.topology);
       setDraft(null); // the lab now restarts: LabLine shows it
@@ -118,6 +119,15 @@ export function App() {
         {error !== null && <p role="alert">Controller not reachable: {error}</p>}
         {error === null && topology === null && <p>Loading the lab…</p>}
         {lab !== null && <LabLine lab={lab} />}
+        {draft !== null && (
+          // seen and saved with the editor closed too (Tomáš, #208); the same save as the editor's
+          <div className="unsaved">
+            <p>Unsaved changes</p>
+            <button type="button" className="primary" disabled={saving} onClick={save}>
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        )}
         {notAdded !== null && <p role="alert">{notAdded}</p>}
         {notSaved !== null && <p role="alert">Not saved: {notSaved}</p>}
       </header>
@@ -149,10 +159,14 @@ export function App() {
               onAdd={(name) => edit((t) => addService(t, name))}
               onRemove={remove}
               onSave={save}
-            />
-            {link !== undefined && (
-              <LinkPanel link={link} onChange={(c) => edit((t) => withSettings(t, link.name, c))} />
-            )}
+            >
+              {link !== undefined && (
+                <LinkPanel
+                  link={link}
+                  onChange={(c) => edit((t) => withSettings(t, link.name, c))}
+                />
+              )}
+            </Editor>
           </Drawer>
           <Drawer
             side="right"
