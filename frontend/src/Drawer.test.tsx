@@ -22,3 +22,22 @@ test("a closed drawer can't be reached by the keyboard; its handle toggles it", 
   expect(body).not.toHaveAttribute("inert");
   expect(screen.getByRole("button", { name: "Editor" })).toHaveAttribute("aria-expanded", "true");
 });
+
+test("only the open bottom panel has a top edge to resize it with; the arrow keys move it", () => {
+  const { rerender } = render(
+    <Drawer side="left" label="Editor" open onToggle={() => {}}>
+      text
+    </Drawer>,
+  );
+  expect(screen.queryByRole("separator")).not.toBeInTheDocument();
+
+  rerender(
+    <Drawer side="bottom" label="Latency" open onToggle={() => {}}>
+      text
+    </Drawer>,
+  );
+  const edge = screen.getByRole("separator", { name: "Resize Latency" });
+  fireEvent.keyDown(edge, { key: "ArrowUp" });
+  // jsdom has no layout, so the height stops at the minimum; the browser run checks the rest
+  expect(edge.parentElement).toHaveStyle({ height: "120px" });
+});

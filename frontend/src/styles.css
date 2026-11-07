@@ -235,7 +235,7 @@ progress {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 260px;
+  height: 50%; /* of the stage, until dragged (Tomáš) */
   z-index: 1; /* under the side drawers */
   border-top-width: 1px;
   transform: translateY(100%);
@@ -250,13 +250,18 @@ progress {
   position: absolute;
   padding: 6px 12px;
   font-size: 13px;
+  /* a violet tint, so the handles bring a little color (Tomáš) */
+  background: color-mix(in srgb, var(--main) 18%, var(--panel));
+  border-color: color-mix(in srgb, var(--main) 45%, var(--panel));
+  color: var(--main);
   transition:
     background 0.15s,
     padding 0.15s;
 }
 
-.drawer-handle:hover {
+.drawer-handle:hover:not(:disabled) {
   padding: 10px 16px; /* hover enlarges it (Tomáš) */
+  background: color-mix(in srgb, var(--main) 30%, var(--panel));
 }
 
 .drawer-left .drawer-handle {
@@ -280,6 +285,23 @@ progress {
 
 .drawer-handle:active:not(:disabled) {
   transform: none; /* the shrink of other buttons would jump the handle */
+}
+
+/* the bottom panel's top edge: drag it, or focus it and use the arrow keys */
+.drawer-resize {
+  position: absolute;
+  top: -4px;
+  left: 0;
+  right: 0;
+  height: 8px;
+  cursor: ns-resize;
+  transition: background 0.15s;
+}
+
+.drawer-resize:hover,
+.drawer-resize:focus-visible {
+  background: color-mix(in srgb, var(--main) 50%, transparent);
+  outline: none;
 }
 
 /* inside drawers, parts stack with some air between them */
