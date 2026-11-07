@@ -31,6 +31,7 @@ function experiment(fields: Partial<Experiment>): Experiment {
     results: {},
     verdict: null,
     reason: null,
+    topology: null, // recorded before #185
     ...fields,
   };
 }

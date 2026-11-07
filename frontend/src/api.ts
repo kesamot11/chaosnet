@@ -98,7 +98,7 @@ export type Experiment = {
   verdict: { passed: boolean; reasons: string[] } | null; // null until completed
   reason: string | null; // why it failed or was aborted
   // The lab it ran on (#185); null for experiments from before it was recorded.
-  topology?: { links: LinkSettings[] } | null;
+  topology: { links: LinkSettings[] } | null;
 };
 
 /** The controller's answer to a start or an abort. A refusal or no controller is an answer too. */
