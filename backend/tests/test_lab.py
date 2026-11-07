@@ -50,7 +50,7 @@ def test_compose_up_fails_with_compose_output(
 def test_a_lab_that_fails_at_controller_start_is_failed(tmp_path: Path) -> None:
     # Controller start (#191): apply the file with nothing to go back to.
     topology = tmp_path / "topology.json"
-    shutil.copy(Path(__file__).parents[2] / "lab" / "topology.json", topology)
+    shutil.copy(Path(__file__).parent / "topology.json", topology)
 
     async def compose(lab_dir: Path) -> None:
         raise LabError("Cannot connect to the Docker daemon")
@@ -85,7 +85,7 @@ def test_an_unexpected_error_ends_as_failed_not_restarting(tmp_path: Path) -> No
     # Tomáš's review (#191): only LabError was handled, so anything else left the lab
     # restarting for ever, and every save was refused.
     topology = tmp_path / "topology.json"
-    shutil.copy(Path(__file__).parents[2] / "lab" / "topology.json", topology)
+    shutil.copy(Path(__file__).parent / "topology.json", topology)
 
     async def compose(lab_dir: Path) -> None:
         raise PermissionError(13, "Permission denied", str(lab_dir / "compose.yaml"))

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "services": [
+    {"name": "gateway", "port": 8080},
+    {"name": "orders"},
+    {"name": "inventory"}
+  ],
+  "links": [
+    {"from": "gateway", "to": "orders", "timeout_s": 2.0, "max_retries": 1},
+    {"from": "orders", "to": "inventory", "timeout_s": 0.5, "max_retries": 2}
+  ]
+}
