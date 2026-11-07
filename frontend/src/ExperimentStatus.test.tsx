@@ -31,6 +31,7 @@ function experiment(fields: Partial<Experiment>): Experiment {
     results: {},
     verdict: null,
     reason: null,
+    topology: null, // recorded before #185
     ...fields,
   };
 }
@@ -158,4 +159,29 @@ test("progress: none before the experiment starts or after it ends (#99)", () =>
   show(experiment({ state: "completed" }));
   expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
   expect(screen.queryByText(/wasn't open/)).not.toBeInTheDocument();
+});
+
+test("the settings of every link it ran with (#185, Tomáš)", () => {
+  const link = { timeout_s: 0.5, max_retries: 2, backoff_s: 0.1, breaker: true, fallback: false };
+  show(
+    experiment({
+      topology: {
+        links: [
+          { from: "gateway", to: "orders", ...link, retry_budget: null },
+          { from: "orders", to: "inventory", ...link, retry_budget: 0.2 },
+        ],
+      },
+    }),
+  );
+  const rows = within(screen.getByRole("table", { name: "settings" })).getAllByRole("row");
+  expect(rows.map((r) => r.textContent)).toEqual([
+    "linktimeoutretriesbackoffbreakerretry budgetfallback",
+    "gateway → orders0.5 s20.1 sonoffoff",
+    "orders → inventory0.5 s20.1 son0.2off",
+  ]);
+});
+
+test("an experiment from before #185 says its settings were not recorded (Tomáš)", () => {
+  show(experiment({ topology: null }));
+  expect(screen.getByText("Settings were not recorded for this experiment.")).toBeInTheDocument();
 });

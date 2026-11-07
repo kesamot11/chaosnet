@@ -71,7 +71,8 @@ def create_app(store: Store, make_runner: MakeRunner, lab: Lab, driver: FaultDri
                 422, f"unknown link {spec.fault.link!r}, the topology has {sorted(links)}"
             )
         try:
-            exp = store.create(spec.name, spec.model_dump())
+            # the lab runs this topology now (the check above), so results can name their settings
+            exp = store.create(spec.name, spec.model_dump(), lab.topology.model_dump(by_alias=True))
         except ExperimentAlreadyRunning as e:
             raise HTTPException(409, str(e)) from e
         task = asyncio.create_task(make_runner(spec.load).run(exp.id))

@@ -100,6 +100,13 @@ def test_experiment_runs_to_completion(tmp_path: Path) -> None:
         res = await client.post("/experiments", json=SPEC)
         assert res.status_code == 201
         assert res.json()["state"] == "pending"
+        # the lab it runs on, so results of different settings can be told apart (#185)
+        # every setting of every link: GET adds only the proxy's name and whether it is there
+        stored = res.json()["topology"]
+        shown = (await client.get("/topology")).json()
+        for link in shown["links"]:
+            del link["name"], link["available"]
+        assert stored == shown
 
         exp = await wait_for(client, res.json()["id"], "completed")
         assert set(exp["results"]) == {"baseline", "inject", "recover"}

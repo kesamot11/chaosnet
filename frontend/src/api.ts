@@ -11,11 +11,19 @@ export type Service = {
   y?: number | null;
 };
 
-export type Link = {
+/** What a link does when its callee is slow or fails (Link in backend/src/chaosnet/topology.py). */
+export type LinkSettings = {
   from: string;
   to: string;
   timeout_s: number;
   max_retries: number;
+  backoff_s: number;
+  breaker: boolean;
+  retry_budget: number | null; // null: no budget
+  fallback: boolean;
+};
+
+export type Link = LinkSettings & {
   name: string; // the Toxiproxy proxy, "<from>-<to>"
   available: boolean; // false: no proxy in Toxiproxy, so no fault can be added
 };
@@ -89,6 +97,8 @@ export type Experiment = {
   results: Partial<Record<Phase, PhaseSummary>>; // a phase appears when it has been measured
   verdict: { passed: boolean; reasons: string[] } | null; // null until completed
   reason: string | null; // why it failed or was aborted
+  // The lab it ran on (#185); null for experiments from before it was recorded.
+  topology: { links: LinkSettings[] } | null;
 };
 
 /** The controller's answer to a start or an abort. A refusal or no controller is an answer too. */
@@ -132,7 +142,7 @@ export async function saveTopology(topology: Topology): Promise<Saved> {
     return { ok: false, reason: `Controller not reachable: ${e instanceof Error ? e.message : e}` };
   }
   if (res.ok) return { ok: true, topology: (await res.json()) as Topology };
-  return { ok: false, reason: await refusal(res) };
+  return { ok: false, reason: await refusal(res, topology) };
 }
 
 export type LabState = "running" | "restarting" | "failed";
@@ -162,8 +172,11 @@ async function post(path: string, body?: unknown): Promise<Answer> {
 
 type ValidationError = { loc: (string | number)[]; msg: string };
 
-/** Why the controller said no: its own message (409, unknown link) or FastAPI's field errors. */
-async function refusal(res: Response): Promise<string> {
+/**
+ * Why the controller said no: its own message (409, unknown link) or FastAPI's field errors.
+ * With the topology that was sent, a link or service is named, not numbered (Tomáš, #185).
+ */
+async function refusal(res: Response, sent?: Topology): Promise<string> {
   const body: unknown = await res.json().catch(() => null); // a proxy error has no JSON body
   const detail = (body as { detail?: unknown } | null)?.detail;
   if (typeof detail === "string") return detail;
@@ -172,11 +185,22 @@ async function refusal(res: Response): Promise<string> {
     // the whole body (check, #190) has only "body", and Pydantic's prefix says nothing
     return (detail as ValidationError[])
       .map((e) => {
-        const where = e.loc.slice(1).join(".");
+        const where = place(e.loc.slice(1), sent);
         const msg = e.msg.replace(/^Value error, /, "");
         return where === "" ? msg : `${where}: ${msg}`;
       })
       .join("; ");
   }
   return `Controller error: HTTP ${res.status}`;
+}
+
+/** ["links", 1, "timeout_s"] -> "orders-inventory: timeout_s", given what was sent; else "links.1.timeout_s". */
+function place(path: (string | number)[], sent?: Topology): string {
+  const [list, i, ...rest] = path;
+  const item =
+    (list === "links" || list === "services") && typeof i === "number"
+      ? sent?.[list][i]
+      : undefined;
+  if (item === undefined) return path.join(".");
+  return rest.length === 0 ? item.name : `${item.name}: ${rest.join(".")}`;
 }

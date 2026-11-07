@@ -10,8 +10,9 @@ import {
 import { Editor } from "./Editor";
 import { ExperimentForm } from "./ExperimentForm";
 import { ExperimentStatus } from "./ExperimentStatus";
-import { addLink, addService, removeLink, removeService, withPosition } from "./edit";
+import { addLink, addService, removeLink, removeService, withPosition, withSettings } from "./edit";
 import { LatencyChart } from "./LatencyChart";
+import { LinkPanel } from "./LinkPanel";
 import { TopologyView } from "./TopologyView";
 import { useExperiment } from "./useExperiment";
 import { useLab } from "./useLab";
@@ -135,6 +136,15 @@ export function App() {
               ? "Click a link to choose where the fault goes."
               : `Selected link: ${selected}`}
           </p>
+          {link !== undefined && (
+            <LinkPanel link={link} onChange={(c) => edit((t) => withSettings(t, link.name, c))} />
+          )}
+          {link?.available && draft !== null && (
+            // Start stays allowed (Tomáš), but the lab changes only on Save
+            <p role="note">
+              Unsaved changes: an experiment started now runs with the saved settings.
+            </p>
+          )}
           {link?.available && <ExperimentForm link={link.name} onStarted={setExperimentId} />}
           {link !== undefined && !link.available && (
             // a drawn link gets its proxy on Save; a saved one has lost it (Tomáš's review)

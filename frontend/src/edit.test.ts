@@ -1,12 +1,16 @@
 import { expect, test } from "vitest";
 import type { Link, Topology } from "./api";
-import { addLink, addService, removeLink, removeService, withPosition } from "./edit";
+import { addLink, addService, removeLink, removeService, withPosition, withSettings } from "./edit";
 
 const link = (from: string, to: string): Link => ({
   from,
   to,
   timeout_s: 1,
   max_retries: 0,
+  backoff_s: 0,
+  breaker: false,
+  retry_budget: null,
+  fallback: false,
   name: `${from}-${to}`,
   available: true,
 });
@@ -47,6 +51,10 @@ test("a new link gets the controller's defaults and no proxy until Save (Tomáš
     to: "orders",
     timeout_s: 1,
     max_retries: 0,
+    backoff_s: 0,
+    breaker: false,
+    retry_budget: null,
+    fallback: false,
     name: "inventory-orders",
     available: false,
   });
@@ -65,5 +73,14 @@ test("removing a link removes that one only", () => {
   expect(removeLink(LAB, "orders-inventory").links.map((l) => l.name)).toEqual([
     "gateway-orders",
     "gateway-inventory",
+  ]);
+});
+
+test("settings change that one link only (#185)", () => {
+  const changed = withSettings(LAB, "orders-inventory", { max_retries: 3, retry_budget: 0.1 });
+  expect(changed.links.map((l) => [l.name, l.max_retries, l.retry_budget])).toEqual([
+    ["gateway-orders", 0, null],
+    ["orders-inventory", 3, 0.1],
+    ["gateway-inventory", 0, null],
   ]);
 });

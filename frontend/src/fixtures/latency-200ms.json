@@ -217,6 +217,7 @@
     "reasons": ["p95 415.7 ms > 150 ms"]
   },
   "reason": null,
+  "topology": null,
   "created_at": "2026-10-28T19:10:55Z",
   "updated_at": "2026-10-28T19:11:11Z"
 }

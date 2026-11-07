@@ -69,6 +69,7 @@ function experiment(results: Experiment["results"]): Experiment {
     results,
     verdict: null,
     reason: null,
+    topology: null, // recorded before #185
   };
 }
 
