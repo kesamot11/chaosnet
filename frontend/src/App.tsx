@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   abortExperiment,
+  END_STATES,
   fetchExperiments,
   fetchTopology,
   type LabStatus,
@@ -174,6 +175,15 @@ export function App() {
             open={open.right}
             onToggle={() => toggle("right")}
           >
+            {/* the experiment first, the form for the next one under it (Tomáš, #209) */}
+            {experiment !== null && (
+              <ExperimentStatus
+                experiment={experiment}
+                unreachable={unreachable}
+                // A refused abort shows up in the next poll: the experiment is no longer running.
+                onAbort={() => abortExperiment(experiment.id)}
+              />
+            )}
             <p>
               {selected === null
                 ? "Click a link to choose where the fault goes."
@@ -188,6 +198,7 @@ export function App() {
             {link?.available && (
               <ExperimentForm
                 link={link.name}
+                running={experiment !== null && !END_STATES.has(experiment.state)}
                 onStarted={(id) => {
                   setExperimentId(id);
                   setOpen((o) => ({ ...o, bottom: true })); // the chart starts to fill (Tomáš)
@@ -201,14 +212,6 @@ export function App() {
                   ? "This link has no proxy, so no fault can be added."
                   : "Save the lab, then you can add a fault here."}
               </p>
-            )}
-            {experiment !== null && (
-              <ExperimentStatus
-                experiment={experiment}
-                unreachable={unreachable}
-                // A refused abort shows up in the next poll: the experiment is no longer running.
-                onAbort={() => abortExperiment(experiment.id)}
-              />
             )}
           </Drawer>
           <Drawer

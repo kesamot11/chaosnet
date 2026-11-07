@@ -21,7 +21,7 @@ afterEach(() => {
 
 test("starts the experiment on the selected link", async () => {
   reply(201, { id: 7, name: "slow inventory", state: "pending", reason: null });
-  render(<ExperimentForm link="orders-inventory" onStarted={onStarted} />);
+  render(<ExperimentForm link="orders-inventory" onStarted={onStarted} running={false} />);
   fillAndStart();
   expect(await screen.findByText("Experiment #7 started")).toBeInTheDocument();
   expect(onStarted).toHaveBeenCalledWith(7);
@@ -37,7 +37,7 @@ test("starts the experiment on the selected link", async () => {
 
 test("Start is blocked while waiting for the answer", async () => {
   vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {}))); // never answers
-  render(<ExperimentForm link="orders-inventory" onStarted={onStarted} />);
+  render(<ExperimentForm link="orders-inventory" onStarted={onStarted} running={false} />);
   fillAndStart();
   expect(await screen.findByRole("button", { name: "Starting…" })).toBeDisabled();
   expect(fetch).toHaveBeenCalledTimes(1);
@@ -45,7 +45,7 @@ test("Start is blocked while waiting for the answer", async () => {
 
 test("a refusal shows the reason and keeps what was typed", async () => {
   reply(409, { detail: "experiment 3 is already running" });
-  render(<ExperimentForm link="orders-inventory" onStarted={onStarted} />);
+  render(<ExperimentForm link="orders-inventory" onStarted={onStarted} running={false} />);
   fillAndStart("my experiment");
   expect(await screen.findByRole("alert")).toHaveTextContent("experiment 3 is already running");
   expect(screen.getByLabelText("Name")).toHaveValue("my experiment");
@@ -54,9 +54,21 @@ test("a refusal shows the reason and keeps what was typed", async () => {
 });
 
 test("only the field of the chosen kind can be typed in", () => {
-  render(<ExperimentForm link="orders-inventory" onStarted={onStarted} />);
+  render(<ExperimentForm link="orders-inventory" onStarted={onStarted} running={false} />);
   expect(screen.getByLabelText("Bandwidth kbps")).toBeDisabled();
   fireEvent.change(screen.getByLabelText("Kind"), { target: { value: "bandwidth" } });
   expect(screen.getByLabelText("Latency ms")).toBeDisabled();
   expect(screen.getByLabelText("Bandwidth kbps")).toBeEnabled();
+});
+
+test("Start waits while an experiment runs, and says why (Tomáš, #209)", () => {
+  const { rerender } = render(
+    <ExperimentForm link="orders-inventory" onStarted={onStarted} running={true} />,
+  );
+  expect(screen.getByRole("button", { name: "Start" })).toBeDisabled();
+  expect(screen.getByText("An experiment is running.")).toBeInTheDocument();
+
+  rerender(<ExperimentForm link="orders-inventory" onStarted={onStarted} running={false} />);
+  expect(screen.getByRole("button", { name: "Start" })).toBeEnabled();
+  expect(screen.queryByText("An experiment is running.")).not.toBeInTheDocument();
 });

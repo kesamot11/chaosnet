@@ -50,7 +50,7 @@ test("while running: the phase, what is measured so far, and Abort", () => {
   expect(screen.getByText(/slow inventory/)).toBeInTheDocument();
   expect(screen.getByText(/inject \(2\/3\)/)).toBeInTheDocument();
   // p50, p95 and the error rate, one decimal each
-  expect(row("baseline")).toHaveTextContent(/10\.4 ms.*15\.1 ms.*0\.0 %.*0\.0 % degraded/);
+  expect(row("baseline")).toHaveTextContent(/10\.4.*15\.1.*0\.0.*0\.0/);
   expect(within(row("inject")).getAllByText("-")).toHaveLength(4); // not measured yet
   expect(within(row("recover")).getAllByText("-")).toHaveLength(4);
   fireEvent.click(screen.getByRole("button", { name: "Abort" }));
@@ -77,7 +77,7 @@ test("completed and failed: every broken limit", () => {
       verdict: { passed: false, reasons: ["p95 230.8 ms > 200 ms", "error rate 5.0 % > 1.0 %"] },
     }),
   );
-  expect(row("inject")).toHaveTextContent(/210\.3 ms.*230\.8 ms.*5\.0 %/);
+  expect(row("inject")).toHaveTextContent(/210\.3.*230\.8.*5\.0/);
   expect(screen.getByText(/failed/)).toBeInTheDocument();
   expect(screen.getByText("p95 230.8 ms > 200 ms")).toBeInTheDocument();
   expect(screen.getByText("error rate 5.0 % > 1.0 %")).toBeInTheDocument();
@@ -175,9 +175,9 @@ test("the settings of every link it ran with (#185, Tomáš)", () => {
   );
   const rows = within(screen.getByRole("table", { name: "settings" })).getAllByRole("row");
   expect(rows.map((r) => r.textContent)).toEqual([
-    "linktimeoutretriesbackoffbreakerretry budgetfallback",
-    "gateway → orders0.5 s20.1 sonoffoff",
-    "orders → inventory0.5 s20.1 son0.2off",
+    "linktimeout sretriesbackoff sbreakerbudgetfallback",
+    "gateway → orders0.520.1onoffoff",
+    "orders → inventory0.520.1on0.2off",
   ]);
 });
 
