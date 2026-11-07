@@ -112,8 +112,11 @@ test("an experiment started before the list arrives is the one followed", async 
   });
   fireEvent.click(edge);
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "mine" } });
+  expect(screen.getByRole("button", { name: "Latency" })).toHaveAttribute("aria-expanded", "false");
   fireEvent.click(screen.getByRole("button", { name: "Start" }));
   expect(await screen.findByRole("heading", { name: /^mine: completed/ })).toBeInTheDocument();
+  // the chart starts to fill, so its panel opens (Tomáš, #207)
+  expect(screen.getByRole("button", { name: "Latency" })).toHaveAttribute("aria-expanded", "true");
 
   answerList([{ ...DONE, id: 6, name: "older" }]); // the list from before "mine" existed
   // wait until the UI has read the late list, however long that takes, and applied it
@@ -123,6 +126,28 @@ test("an experiment started before the list arrives is the one followed", async 
   });
   expect(screen.getByRole("heading", { name: /^mine: completed/ })).toBeInTheDocument();
   expect(fetch).not.toHaveBeenCalledWith("/api/experiments/6", expect.anything());
+});
+
+test("drawers: all closed at start, opened by what the user selects, toggled by their handle (#207)", async () => {
+  serve({ "GET /api/topology": LAB, "GET /api/experiments": [] });
+  render(<App />);
+  const handle = (name: string) => screen.getByRole("button", { name });
+  const expanded = () =>
+    ["Editor", "Experiment", "Latency"].map((n) => handle(n).getAttribute("aria-expanded"));
+  await screen.findByText("gateway :8080");
+  expect(expanded()).toEqual(["false", "false", "false"]); // the lab gets the whole screen
+
+  const orders = document.querySelector('.react-flow__node[data-id="orders"]');
+  if (!orders) throw new Error("orders is not drawn");
+  fireEvent.click(orders);
+  expect(expanded()).toEqual(["true", "false", "false"]); // Remove is in the editor
+
+  fireEvent.click(handle("Editor"));
+  expect(expanded()).toEqual(["false", "false", "false"]);
+  const edge = document.querySelector('[data-id="gateway-orders"]');
+  if (!edge) throw new Error("the link is not drawn");
+  fireEvent.click(edge);
+  expect(expanded()).toEqual(["true", "true", "false"]); // its settings and the form
 });
 
 test("what the user is told about the lab, in each state (#192)", () => {

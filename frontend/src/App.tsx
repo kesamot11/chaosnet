@@ -7,6 +7,7 @@ import {
   saveTopology,
   type Topology,
 } from "./api";
+import { Drawer, type Side } from "./Drawer";
 import { Editor } from "./Editor";
 import { ExperimentForm } from "./ExperimentForm";
 import { ExperimentStatus } from "./ExperimentStatus";
@@ -41,6 +42,13 @@ export function App() {
   const [saving, setSaving] = useState(false);
   const [refused, setRefused] = useState<string | null>(null);
   const [notAdded, setNotAdded] = useState<string | null>(null); // why a drawn link was not
+  // All closed at start: the lab gets the whole screen (Tomáš, #207).
+  const [open, setOpen] = useState<Record<Side, boolean>>({
+    left: false,
+    right: false,
+    bottom: false,
+  });
+  const toggle = (side: Side) => setOpen((o) => ({ ...o, [side]: !o[side] }));
   const shown = draft ?? topology;
   // A selection counts only while its link or service is shown: a rollback or a removal may
   // take it away, and nothing should point at what is gone.
@@ -104,68 +112,104 @@ export function App() {
   }, []);
 
   return (
-    <main>
-      <h1>ChaosNet</h1>
-      {error !== null && <p>Controller not reachable: {error}</p>}
-      {error === null && topology === null && <p>Loading the lab…</p>}
+    <main className="app">
+      <header className="topbar">
+        <h1>ChaosNet</h1>
+        {error !== null && <p role="alert">Controller not reachable: {error}</p>}
+        {error === null && topology === null && <p>Loading the lab…</p>}
+        {lab !== null && <LabLine lab={lab} />}
+        {notAdded !== null && <p role="alert">{notAdded}</p>}
+        {notSaved !== null && <p role="alert">Not saved: {notSaved}</p>}
+      </header>
       {shown !== null && (
-        <>
-          {lab !== null && <LabLine lab={lab} />}
+        <div className="stage">
           <TopologyView
             topology={shown}
             selected={selected}
-            onSelect={(name) => setSelection({ kind: "link", name })}
+            onSelect={(name) => {
+              setSelection({ kind: "link", name });
+              setOpen((o) => ({ ...o, left: true, right: true })); // settings and the form (Tomáš)
+            }}
             onMove={draft === null ? move : (s, p) => edit((t) => withPosition(t, s, p))}
             service={service}
-            onSelectService={(name) => setSelection({ kind: "service", name })}
+            onSelectService={(name) => {
+              setSelection({ kind: "service", name });
+              setOpen((o) => ({ ...o, left: true })); // Remove is there (Tomáš)
+            }}
             onConnect={connect}
             // a fault is in the lab only during inject (Tomáš)
             faulted={experiment?.state === "inject" ? experiment.spec.fault.link : null}
           />
-          {notAdded !== null && <p role="alert">{notAdded}</p>}
-          <Editor
-            changed={draft !== null}
-            removable={selected !== null ? `link ${selected}` : service}
-            saving={saving}
-            refused={refused}
-            onAdd={(name) => edit((t) => addService(t, name))}
-            onRemove={remove}
-            onSave={save}
-          />
-          {notSaved !== null && <p role="alert">Not saved: {notSaved}</p>}
-          <p>
-            {selected === null
-              ? "Click a link to choose where the fault goes."
-              : `Selected link: ${selected}`}
-          </p>
-          {link !== undefined && (
-            <LinkPanel link={link} onChange={(c) => edit((t) => withSettings(t, link.name, c))} />
-          )}
-          {link?.available && draft !== null && (
-            // Start stays allowed (Tomáš), but the lab changes only on Save
-            <p role="note">
-              Unsaved changes: an experiment started now runs with the saved settings.
-            </p>
-          )}
-          {link?.available && <ExperimentForm link={link.name} onStarted={setExperimentId} />}
-          {link !== undefined && !link.available && (
-            // a drawn link gets its proxy on Save; a saved one has lost it (Tomáš's review)
-            <p>
-              {topology?.links.some((l) => l.name === link.name)
-                ? "This link has no proxy, so no fault can be added."
-                : "Save the lab, then you can add a fault here."}
-            </p>
-          )}
-          {experiment !== null && (
-            <ExperimentStatus
-              experiment={experiment}
-              unreachable={unreachable}
-              // A refused abort shows up in the next poll: the experiment is no longer running.
-              onAbort={() => abortExperiment(experiment.id)}
+          <Drawer side="left" label="Editor" open={open.left} onToggle={() => toggle("left")}>
+            <Editor
+              changed={draft !== null}
+              removable={selected !== null ? `link ${selected}` : service}
+              saving={saving}
+              refused={refused}
+              onAdd={(name) => edit((t) => addService(t, name))}
+              onRemove={remove}
+              onSave={save}
             />
-          )}
-          {experiment !== null && <LatencyChart experiment={experiment} />}
-        </>
+            {link !== undefined && (
+              <LinkPanel link={link} onChange={(c) => edit((t) => withSettings(t, link.name, c))} />
+            )}
+          </Drawer>
+          <Drawer
+            side="right"
+            label="Experiment"
+            open={open.right}
+            onToggle={() => toggle("right")}
+          >
+            <p>
+              {selected === null
+                ? "Click a link to choose where the fault goes."
+                : `Selected link: ${selected}`}
+            </p>
+            {link?.available && draft !== null && (
+              // Start stays allowed (Tomáš), but the lab changes only on Save
+              <p role="note">
+                Unsaved changes: an experiment started now runs with the saved settings.
+              </p>
+            )}
+            {link?.available && (
+              <ExperimentForm
+                link={link.name}
+                onStarted={(id) => {
+                  setExperimentId(id);
+                  setOpen((o) => ({ ...o, bottom: true })); // the chart starts to fill (Tomáš)
+                }}
+              />
+            )}
+            {link !== undefined && !link.available && (
+              // a drawn link gets its proxy on Save; a saved one has lost it (Tomáš's review)
+              <p>
+                {topology?.links.some((l) => l.name === link.name)
+                  ? "This link has no proxy, so no fault can be added."
+                  : "Save the lab, then you can add a fault here."}
+              </p>
+            )}
+            {experiment !== null && (
+              <ExperimentStatus
+                experiment={experiment}
+                unreachable={unreachable}
+                // A refused abort shows up in the next poll: the experiment is no longer running.
+                onAbort={() => abortExperiment(experiment.id)}
+              />
+            )}
+          </Drawer>
+          <Drawer
+            side="bottom"
+            label="Latency"
+            open={open.bottom}
+            onToggle={() => toggle("bottom")}
+          >
+            {experiment !== null ? (
+              <LatencyChart experiment={experiment} />
+            ) : (
+              <p>Start an experiment to see its latency here.</p>
+            )}
+          </Drawer>
+        </div>
       )}
     </main>
   );
