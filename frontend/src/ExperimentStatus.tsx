@@ -1,4 +1,4 @@
-import { END_STATES, type Experiment, JAEGER, type Phase } from "./api";
+import { END_STATES, type Experiment, JAEGER, type LinkSettings, type Phase } from "./api";
 import { phaseProgress, recall } from "./progress";
 import { degradedRate, errorRate } from "./results";
 
@@ -95,6 +95,43 @@ export function ExperimentStatus({ experiment, unreachable, onAbort }: Props) {
           })}
         </tbody>
       </table>
+      <Settings links={experiment.topology?.links ?? null} />
     </section>
+  );
+}
+
+/** Every link's settings when the experiment ran (#185): the others shape the results too (Tomáš). */
+function Settings({ links }: { links: LinkSettings[] | null }) {
+  if (links === null) return <p>Settings were not recorded for this experiment.</p>;
+  const onOff = (on: boolean) => (on ? "on" : "off");
+  return (
+    <table aria-label="settings">
+      <thead>
+        <tr>
+          <th>link</th>
+          <th>timeout</th>
+          <th>retries</th>
+          <th>backoff</th>
+          <th>breaker</th>
+          <th>retry budget</th>
+          <th>fallback</th>
+        </tr>
+      </thead>
+      <tbody>
+        {links.map((l) => (
+          <tr key={`${l.from}-${l.to}`}>
+            <td>
+              {l.from} → {l.to}
+            </td>
+            <td>{l.timeout_s} s</td>
+            <td>{l.max_retries}</td>
+            <td>{l.backoff_s} s</td>
+            <td>{onOff(l.breaker)}</td>
+            <td>{l.retry_budget ?? "off"}</td>
+            <td>{onOff(l.fallback)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

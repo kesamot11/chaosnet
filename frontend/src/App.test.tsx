@@ -17,6 +17,10 @@ const LAB: Topology = {
       to: "orders",
       timeout_s: 2,
       max_retries: 1,
+      backoff_s: 0,
+      breaker: false,
+      retry_budget: null,
+      fallback: false,
       name: "gateway-orders",
       available: true,
     },
@@ -231,6 +235,45 @@ test("services are added and removed in a draft, applied only by Save (#193)", a
   await waitFor(() => expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument());
   expect(puts.at(-1)?.services.map((s) => s.name)).toEqual(["gateway"]);
   expect(puts.at(-1)?.links).toEqual([]); // gateway-orders went with orders
+});
+
+test("link settings go into the draft, with a warning for Start, and Save sends them (#185)", async () => {
+  const puts: Topology[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((path: string, init?: RequestInit) => {
+      if (init?.method === "PUT") puts.push(JSON.parse(String(init.body)));
+      const body =
+        path === "/api/lab"
+          ? { state: "running", error: null }
+          : path === "/api/experiments"
+            ? []
+            : (puts.at(-1) ?? LAB);
+      return Promise.resolve(new Response(JSON.stringify(body)));
+    }),
+  );
+  render(<App />);
+  const edge = await waitFor(() => {
+    const e = document.querySelector('[data-id="gateway-orders"]');
+    if (!e) throw new Error("the link is not drawn yet");
+    return e;
+  });
+  fireEvent.click(edge);
+  expect(screen.getByLabelText("Retries")).toHaveValue(1);
+  expect(screen.getByLabelText("Retry budget")).toHaveValue(null); // empty: off
+  expect(screen.queryByRole("note")).not.toBeInTheDocument(); // nothing unsaved
+
+  fireEvent.change(screen.getByLabelText("Retries"), { target: { value: "3" } });
+  fireEvent.change(screen.getByLabelText("Retry budget"), { target: { value: "0.2" } });
+  fireEvent.click(screen.getByLabelText("Circuit breaker"));
+  expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+  expect(screen.getByRole("note")).toHaveTextContent(/runs with the saved settings/);
+  expect(screen.getByRole("button", { name: "Start" })).toBeEnabled(); // allowed (Tomáš)
+
+  fireEvent.change(screen.getByLabelText("Retry budget"), { target: { value: "" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(puts).toHaveLength(1));
+  expect(puts[0]?.links[0]).toMatchObject({ max_retries: 3, breaker: true, retry_budget: null });
 });
 
 test("a saved link that lost its proxy says so, and Remove takes it out of the draft", async () => {

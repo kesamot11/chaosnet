@@ -100,6 +100,12 @@ def test_experiment_runs_to_completion(tmp_path: Path) -> None:
         res = await client.post("/experiments", json=SPEC)
         assert res.status_code == 201
         assert res.json()["state"] == "pending"
+        # the lab it runs on, so results of different settings can be told apart (#185)
+        stored = res.json()["topology"]["links"]
+        shown = (await client.get("/topology")).json()["links"]
+        assert [(k["from"], k["max_retries"]) for k in stored] == [
+            (k["from"], k["max_retries"]) for k in shown
+        ]
 
         exp = await wait_for(client, res.json()["id"], "completed")
         assert set(exp["results"]) == {"baseline", "inject", "recover"}

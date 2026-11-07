@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS experiments (
     results    TEXT NOT NULL DEFAULT '{}', -- {phase: load generator summary}, as JSON
     verdict    TEXT,                       -- {"passed": ..., "reasons": [...]}, as JSON
     reason     TEXT,                       -- why it failed or was aborted
+    topology   TEXT,                       -- the lab it ran on, as JSON; NULL before #185
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 )
@@ -45,6 +46,9 @@ class Experiment:
     reason: str | None
     created_at: str
     updated_at: str
+    # The lab it ran on (#185), so results of different settings can be told apart;
+    # None for experiments from before it was recorded.
+    topology: dict[str, Any] | None = None
 
 
 def now() -> str:
@@ -56,6 +60,10 @@ class Store:
         self.db = sqlite3.connect(path)
         self.db.row_factory = sqlite3.Row
         self.db.execute(SCHEMA)
+        # A database from before #185 has no topology column: add it, its rows stay NULL.
+        columns = {row["name"] for row in self.db.execute("PRAGMA table_info(experiments)")}
+        if "topology" not in columns:
+            self.db.execute("ALTER TABLE experiments ADD COLUMN topology TEXT")
         self.db.commit()
 
     def close(self) -> None:
@@ -67,16 +75,18 @@ class Store:
     def __exit__(self, *exc: object) -> None:
         self.close()
 
-    def create(self, name: str, spec: dict[str, Any]) -> Experiment:
+    def create(
+        self, name: str, spec: dict[str, Any], topology: dict[str, Any] | None = None
+    ) -> Experiment:
         """Store a new ``pending`` experiment, unless another one is still running."""
         running = self.running()
         if running is not None:
             raise ExperimentAlreadyRunning(f"experiment {running.id} is {running.state}")
         ts = now()
         cur = self.db.execute(
-            "INSERT INTO experiments (name, state, spec, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (name, State.PENDING, json.dumps(spec), ts, ts),
+            "INSERT INTO experiments (name, state, spec, topology, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (name, State.PENDING, json.dumps(spec), json.dumps(topology), ts, ts),
         )
         self.db.commit()
         assert cur.lastrowid is not None
@@ -137,4 +147,5 @@ def to_experiment(row: sqlite3.Row) -> Experiment:
         reason=row["reason"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        topology=json.loads(row["topology"]) if row["topology"] else None,
     )

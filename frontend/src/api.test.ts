@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { type ExperimentSpec, startExperiment } from "./api";
+import { type ExperimentSpec, saveTopology, startExperiment, type Topology } from "./api";
 
 const SPEC: ExperimentSpec = {
   name: "slow inventory",
@@ -48,6 +48,34 @@ test("422 from validation: each field and what is wrong with it", async () => {
     ok: false,
     reason:
       "phases_s.inject: Input should be greater than 0; load.rate: Input should be greater than 0",
+  });
+});
+
+test("422 for a topology names the link or service, not its place in the list (Tomáš, #185)", async () => {
+  const link = {
+    from: "orders",
+    to: "inventory",
+    timeout_s: 0,
+    max_retries: 0,
+    backoff_s: 0,
+    breaker: false,
+    retry_budget: null,
+    fallback: false,
+    name: "orders-inventory",
+    available: true,
+  };
+  const sent: Topology = { version: 1, services: [{ name: "orders", port: 8080 }], links: [link] };
+  reply(422, {
+    detail: [
+      { loc: ["body", "links", 0, "timeout_s"], msg: "Input should be greater than 0" },
+      { loc: ["body", "services", 0, "port"], msg: "Input should be less than or equal to 65535" },
+    ],
+  });
+  expect(await saveTopology(sent)).toEqual({
+    ok: false,
+    reason:
+      "orders-inventory: timeout_s: Input should be greater than 0; " +
+      "orders: port: Input should be less than or equal to 65535",
   });
 });
 

@@ -1,4 +1,4 @@
-import type { Topology } from "./api";
+import type { LinkSettings, Topology } from "./api";
 
 export const ENTRY_PORT = 8080; // as gateway's in lab/topology.json
 
@@ -31,9 +31,31 @@ export function addLink(topology: Topology, from: string, to: string): Topology 
   if (topology.links.some((l) => l.from === from && l.to === to)) {
     return "This link already exists.";
   }
-  // no proxy until Save restarts the lab
-  const link = { from, to, timeout_s: 1, max_retries: 0, name: `${from}-${to}`, available: false };
+  const link = {
+    from,
+    to,
+    timeout_s: 1,
+    max_retries: 0,
+    backoff_s: 0,
+    breaker: false,
+    retry_budget: null,
+    fallback: false,
+    name: `${from}-${to}`,
+    available: false, // no proxy until Save restarts the lab
+  };
   return { ...topology, links: [...topology.links, link] };
+}
+
+/** The topology with the link `name` changed by `change`; the controller checks the values (#185). */
+export function withSettings(
+  topology: Topology,
+  name: string,
+  change: Partial<LinkSettings>,
+): Topology {
+  return {
+    ...topology,
+    links: topology.links.map((l) => (l.name === name ? { ...l, ...change } : l)),
+  };
 }
 
 /** The topology without the link `name`, e.g. "orders-inventory". */

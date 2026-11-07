@@ -1,3 +1,4 @@
+import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -7,6 +8,15 @@ from chaosnet.experiments import InvalidTransition, State, Verdict
 from chaosnet.store import ExperimentAlreadyRunning, Store
 
 SPEC = {"name": "EXP-002 A", "fault": {"kind": "latency", "ms": 300}}
+
+# The table as the store created it before #185, to test that an old database still opens.
+OLD_SCHEMA = """
+CREATE TABLE experiments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, state TEXT NOT NULL,
+    spec TEXT NOT NULL, results TEXT NOT NULL DEFAULT '{}', verdict TEXT, reason TEXT,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+)
+"""
 
 
 @pytest.fixture
@@ -29,6 +39,25 @@ def test_new_experiment_is_pending(store: Store) -> None:
         {},
         None,
     )
+
+
+def test_the_topology_is_stored_and_old_databases_get_the_column(tmp_path: Path) -> None:
+    db = tmp_path / "old.db"
+    old = sqlite3.connect(db)  # as Store created it before #185: no topology column
+    old.execute(OLD_SCHEMA)
+    old.execute(
+        "INSERT INTO experiments (name, state, spec, created_at, updated_at)"
+        " VALUES ('old', 'completed', '{}', 't', 't')"
+    )
+    old.commit()
+    old.close()
+
+    with Store(db) as store:
+        assert store.get(1).topology is None  # not recorded back then
+        lab = {"version": 1, "services": [], "links": [{"from": "a", "to": "b"}]}
+        exp = store.create("new", SPEC, lab)
+    with Store(db) as again:
+        assert again.get(exp.id).topology == lab
 
 
 def test_everything_survives_reopening_the_database(tmp_path: Path) -> None:
