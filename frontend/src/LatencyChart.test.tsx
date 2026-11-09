@@ -27,10 +27,10 @@ test("the inject phase is drawn high, baseline and recover low", () => {
   ].map((line) =>
     (line.getAttribute("points") ?? "").split(" ").map((p) => Number(p.split(",")[1])),
   );
-  // y counts from the top: the highest value is at y 0, the chart is 120 high
+  // y counts from the top: the highest value is at y 0; the line is 94 high (120 - 20 - 6)
   expect(inject?.every((y) => y < 5)).toBe(true);
-  expect(baseline?.every((y) => y > 110)).toBe(true);
-  expect(recover?.every((y) => y > 110)).toBe(true);
+  expect(baseline?.every((y) => y > 84)).toBe(true);
+  expect(recover?.every((y) => y > 84)).toBe(true);
 });
 
 test("a phase not measured yet leaves its part of the chart empty", () => {

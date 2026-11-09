@@ -456,3 +456,38 @@ progress {
 .drawer-body thead th:not(:first-child) {
   text-align: right;
 }
+
+/* The latency charts (#210): one above the other, each half of the bottom panel; the plot
+   fills its place, text and dots keep their size (Tomáš) */
+.latency {
+  height: 100%;
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  gap: 12px;
+}
+
+.latency figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+}
+
+.latency figcaption {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.plot {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  border: 1px solid var(--hairline);
+}
+
+.plot svg {
+  position: absolute; /* its size never pushes the plot's: no resize loop */
+  inset: 0;
+  overflow: visible;
+}
