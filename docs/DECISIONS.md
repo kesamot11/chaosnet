@@ -679,3 +679,77 @@ started again, and the error says what failed. If the rollback fails too, the la
 - Toxiproxy's proxies and Prometheus' targets are generated from the same file and must
   be applied with the lab (#191).
 - The roadmap is unchanged: Sprint 10 a polished UI, then the public replay demo.
+
+---
+
+## ADR-012: The public demo replays recorded runs in the UI, built as a static site
+
+- **Status:** Accepted
+- **Date:** 2026-11-14 (Sprint 11 planning)
+- **Issues:** #231 (epic M9), #232–#238
+- **Decided by:** Tomáš; reasons below are his, recorded from the discussion
+
+### Context
+
+ADR-002 keeps execution local and plans a public, read-only demo that replays recorded
+results of real experiments. A visitor, for example a recruiter, should see ChaosNet
+work in a minute, without Docker. Experiments live in the controller's SQLite database
+on Tomáš's machine; the demo runs on the internet with no controller and no database.
+
+### Decisions
+
+**1. Interactive, not a video.** The UI itself is built as a static site. *Reason:* the
+visitor clicks through it alone, and that shows the app really works; a video tells one
+fixed story and goes stale with every UI change.
+
+**2. Start replays a recorded real run, 5× faster.** The chart fills second by second,
+magenta marks the link during inject, and the verdict comes at the end. The run is
+labelled "Recording of a real run, <date>, replayed 5× faster". Nothing is generated
+(ADR-002: replays are recordings of real runs, never synthesised data).
+
+**3. No fault form in the demo.** *Reason:* a form whose fields change nothing would
+look broken or fake; a disclaimer next to it would not be read.
+
+**4. Several runs to choose from, picked per link.** The visitor clicks a link; a small
+form on the right lists the runs recorded on it (a name and one sentence each, for
+example none, retries, a breaker, a fallback) and Start. A hint says to click a link.
+The lab shows the chosen run's own topology, which every run records (ADR-011).
+
+**5. A recorded run is the API's own answer.** The export saves the JSON of
+`GET /api/experiments/{id}` to a file, plus an index of the runs. No new format: the UI
+already reads exactly this. This is the "self-contained, exportable format" ADR-002
+planned.
+
+**6. The files live in the repository** (`frontend/public/demo/`), committed, so it shows
+when and from which run each came, and the static build includes them.
+
+**7. A build-time flag.** `vite build --mode demo`. In `api.ts`, the flag chooses between
+the controller and `/demo/*.json`; the rest of the UI doesn't know. Code that writes
+(Save, a real Start) is not in the demo build, so the public page can't send anything
+anywhere.
+
+**8. What the demo leaves out:** the editor (whole), drawing links, and the dots to
+Jaeger, which is on Tomáš's machine. Services can still be dragged, and that is never
+saved. The lab line says it is a demo of recorded runs, with a link to the repository.
+
+**9. Hosting: GitHub Pages through GitHub Actions** (proposed). It is a public
+deployment and changes the repository's settings, so it waits for Tomáš's separate yes
+(#237).
+
+### Alternatives rejected
+
+| Decision | Rejected | Why |
+|---|---|---|
+| 1 | a video | one fixed story; stale after every UI change |
+| 3 | the full form, with a disclaimer that it always runs the same run | fields that change nothing look broken or fake |
+| 4 | one experiment per link | a comparison of protections runs on the same link |
+| 5 | a new export format | the API's answer already holds every second, the results and the topology |
+| 7 | detect the demo at runtime | the write code would ship to the public page |
+
+### Consequences
+
+- The demo is only as good as its recordings: they are recorded on the current code and
+  described in `docs/EXPERIMENTS.md` (#236).
+- A change to the experiment's JSON shape needs the recordings re-exported, or the demo
+  breaks.
+- Traces stay in the local lab only; the demo shows them as plain lines.
