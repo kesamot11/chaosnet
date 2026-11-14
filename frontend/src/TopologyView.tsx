@@ -1,7 +1,9 @@
 import {
   Background,
   BackgroundVariant,
+  BaseEdge,
   type Edge,
+  type EdgeProps,
   type Node,
   Position,
   ReactFlow,
@@ -11,6 +13,7 @@ import "@xyflow/react/dist/style.css";
 import { useEffect } from "react";
 import type { Link, Topology } from "./api";
 import { layout, type Position as Point } from "./layout";
+import { type Box, route } from "./route";
 
 const NODE_WIDTH = 150;
 const NODE_HEIGHT = 40;
@@ -45,10 +48,13 @@ export function TopologyView({
   const [nodes, setNodes, onNodesChange] = useNodesState(toNodes(topology, service));
   useEffect(() => setNodes(toNodes(topology, service)), [topology, service, setNodes]);
 
-  const edges: Edge[] = topology.links.map((link) => ({
+  const edges: LinkEdge[] = topology.links.map((link) => ({
     id: link.name,
+    type: "link",
     source: link.from,
     target: link.to,
+    // the services in between, where they are now (also while one is dragged): it goes around them
+    data: { services: boxes(nodes, link) },
     label: link.available ? `${link.timeout_s} s, ${link.max_retries} retries` : "no proxy",
     style: edgeStyle(link, link.name === selected, link.name === faulted),
   }));
@@ -58,6 +64,7 @@ export function TopologyView({
       <ReactFlow
         nodes={nodes}
         edges={edges}
+        edgeTypes={EDGE_TYPES}
         onNodesChange={onNodesChange}
         onNodeDragStop={(_, node) => onMove(node.id, node.position)}
         onNodeClick={(_, node) => onSelectService(node.id)}
@@ -104,6 +111,35 @@ export function toNodes(topology: Topology, selected: string | null = null): Nod
       },
     ],
   }));
+}
+
+type LinkEdge = Edge<{ services: Box[] }, "link">;
+
+/** A link, bent around the services in its way (#211). */
+function LinkEdgeView({ sourceX, sourceY, targetX, targetY, data, ...props }: EdgeProps<LinkEdge>) {
+  const { path, labelX, labelY } = route(
+    { x: sourceX, y: sourceY },
+    { x: targetX, y: targetY },
+    data?.services ?? [],
+  );
+  return (
+    <BaseEdge
+      path={path}
+      labelX={labelX}
+      labelY={labelY}
+      label={props.label}
+      style={props.style}
+      interactionWidth={props.interactionWidth}
+    />
+  );
+}
+
+const EDGE_TYPES = { link: LinkEdgeView }; // outside the component: React Flow wants it stable
+
+function boxes(nodes: Node[], link: Link): Box[] {
+  return nodes
+    .filter((n) => n.id !== link.from && n.id !== link.to)
+    .map((n) => ({ ...n.position, width: NODE_WIDTH, height: NODE_HEIGHT }));
 }
 
 /** Magenta only while the link's fault is active (Tomáš); violet when selected. */
