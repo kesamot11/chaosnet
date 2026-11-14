@@ -535,3 +535,39 @@ only at start); why `ALTER TABLE` (`IF NOT EXISTS` skips the whole statement). O
 - *A failed topology, a failed rollback?* Right.
 - *Why restart Toxiproxy?* Right after the quiz explanation.
 - *Why store the topology per experiment?* Right; the word is snapshot.
+
+---
+
+## 2026-11-14: Sprint 10, a polished UI
+
+- **CSS variables are the theme**: colors are defined once on `:root`, and the rest of
+  the UI only refers to them. That needs no library.
+- **A panel over the lab, not beside it**: `position: absolute` and a `transform` slide,
+  so the lab keeps its size. `inert` keeps the keyboard out of a closed panel.
+- **A dragged size is fixed in px**: `height: 50%` holds only until the first drag;
+  `max-height: calc(100% - 40px)` keeps the edge on screen when the window shrinks.
+- **One action, one function**: both Save buttons call the same `save()`.
+- **Draw in real pixels**: a stretched picture scales its text too. Measure the place
+  (`ResizeObserver`) and draw at that size.
+- **What is measured must not depend on what is drawn from it**: the svg is
+  `position: absolute`, out of the flow, so its size can't grow the box it measures (a
+  feedback loop).
+- **Collision detection by sampling**: a curve is cut into 32 straight lines; each is
+  tested against a service's box (Liang–Barsky). If one hits, the arc rises and the test
+  runs again.
+
+---
+
+## 2026-11-14: Sprint 10 interview check
+
+Quiz 6/10. Misses: `max-height` after a drag, magenta (only an active fault), why the svg
+is `absolute` (feedback loop), a foreign service on a link's end. Own words:
+
+- *How do links avoid services?* Right in outline; missing the retry loop, the margin,
+  and that it runs during the drag.
+- *Why does the chart measure its place?* Right on why; didn't know the feedback loop.
+  Weak spot: revisit in the Sprint 11 check.
+- *Why do Toxiproxy and Prometheus restart?* Right after a fill-in sentence (config read
+  only at start).
+- *Why does Save answer at once?* Right: a refresh would lose the result. Fixed since
+  Sprint 9.
