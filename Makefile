@@ -1,4 +1,4 @@
-.PHONY: check fmt integration
+.PHONY: check fmt integration demo-export
 
 PROJECTS := backend lab frontend
 
@@ -21,3 +21,14 @@ fmt:
 integration:
 	cd backend && uv sync --locked -q
 	cd lab && uv run pytest -m integration -v
+
+# Save recorded runs for the public demo (#233, ADR-012): the controller's own answer for
+# each experiment, byte for byte, never edited. The index, demo/runs.json, is written by hand.
+#   make demo-export IDS="41 42"
+demo-export:
+	@test -n "$(IDS)" || { echo 'usage: make demo-export IDS="41 42"'; exit 1; }
+	@mkdir -p frontend/public/demo
+	@for id in $(IDS); do \
+	  curl -fsS http://127.0.0.1:8476/experiments/$$id -o frontend/public/demo/$$id.json || exit 1; \
+	  echo "frontend/public/demo/$$id.json"; \
+	done
