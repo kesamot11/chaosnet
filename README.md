@@ -117,17 +117,22 @@ npm ci --ignore-scripts
 npm run dev        # http://127.0.0.1:5173
 ```
 
-The UI shows the lab as a graph and is also its editor (ADR-011):
+The UI shows the lab as a graph and is also its editor (ADR-011). The lab fills the
+screen in a dark theme; three drawers slide over it from their handles: **Editor** on the
+left, **Experiment** on the right (the last experiment above the form for the next one)
+and **Latency** at the bottom (p95 and error rate per second; drag its top edge to resize
+it). A link whose fault is active is drawn in magenta; a link that would cross a service
+arcs over it.
 
 - drag a service to place it; positions are saved at once and don't restart the lab,
 - add and remove services, draw a link from a service's right side to another's left
   side, select a link or a service and remove it,
 - select a link to change its timeout, retries, backoff, retry budget, breaker and
   fallback, or to run an experiment on it,
-- changes wait as a draft until **Save**, which applies them: the controller checks the
-  topology, regenerates the lab, restarts it and waits until it answers. If the new lab
-  doesn't start, the previous one comes back, with the reason. Save is refused while an
-  experiment runs.
+- changes wait as a draft until **Save** (in the editor or the top bar), which applies
+  them: the controller checks the topology, regenerates the lab, restarts it and waits
+  until it answers. If the new lab doesn't start, the previous one comes back, with the
+  reason. Save is refused while an experiment runs.
 
 Every experiment records the topology it ran on and shows it with its results.
 
