@@ -1,4 +1,4 @@
-import { END_STATES, type Experiment, JAEGER, type LinkSettings, type Phase } from "./api";
+import { END_STATES, type Experiment, JAEGER, type LinkSettings, type Phase, SPEED } from "./api";
 import { phaseProgress, recall } from "./progress";
 import { degradedRate, errorRate } from "./results";
 
@@ -13,7 +13,7 @@ const PHASES: Phase[] = ["baseline", "inject", "recover"];
 function PhaseBar({ experiment }: { experiment: Experiment }) {
   const phase = experiment.state as Phase;
   const total_s = experiment.spec.phases_s[phase];
-  const p = phaseProgress(recall(experiment.id, phase), total_s, Date.now());
+  const p = phaseProgress(recall(experiment.id, phase), total_s, Date.now(), SPEED);
   if (p.kind === "unknown") {
     return (
       <p>
