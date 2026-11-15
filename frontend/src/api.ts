@@ -1,4 +1,12 @@
 /** Types and calls for the controller API (backend/src/chaosnet/api.py), via the /api proxy. */
+import { replayed, topologyOf } from "./replay";
+
+// The public demo (ADR-012): built with `vite build --mode demo`, it reads recorded runs from
+// its own files and never calls a controller. A constant, so the build drops the other branch.
+export const DEMO = import.meta.env.MODE === "demo";
+export const SPEED = DEMO ? 5 : 1; // a recording replays 5× faster
+const FILES = `${import.meta.env.BASE_URL}demo/`;
+const NOT_IN_DEMO = "This is a demo of recorded runs: nothing can be changed or started.";
 
 // Jaeger's UI, published by the lab on this port (#157); a trace opens at /trace/<id>.
 export const JAEGER = "http://127.0.0.1:16686";
@@ -49,6 +57,12 @@ export type ExperimentSpec = {
 };
 
 export async function fetchTopology(signal?: AbortSignal): Promise<Topology> {
+  if (DEMO) {
+    // the lab of the first run, until a run is chosen (#235)
+    const [first] = await fetchRuns(signal);
+    if (first === undefined) throw new Error("the demo has no recorded runs");
+    return topologyOf(await read<Experiment>(`${FILES}${first.id}.json`, signal));
+  }
   const res = await fetch("/api/topology", { signal });
   if (!res.ok) throw new Error(`GET /topology failed: HTTP ${res.status}`);
   return (await res.json()) as Topology;
@@ -104,6 +118,26 @@ export type Experiment = {
 /** The controller's answer to a start or an abort. A refusal or no controller is an answer too. */
 export type Answer = { ok: true; experiment: Experiment } | { ok: false; reason: string };
 
+/** One entry of demo/runs.json, written by hand (#233): a recorded run and what it shows. */
+export type Run = { id: number; link: string; name: string; about: string };
+
+export function fetchRuns(signal?: AbortSignal): Promise<Run[]> {
+  return read<Run[]>(`${FILES}runs.json`, signal);
+}
+
+const replays = new Map<number, number>(); // a run's id → when its replay started (ms)
+
+/** Start replaying a recorded run (#234): from now on it is shown as it ran, SPEED× faster. */
+export function replay(id: number): void {
+  replays.set(id, Date.now());
+}
+
+async function read<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(path, { signal });
+  if (!res.ok) throw new Error(`GET ${path} failed: HTTP ${res.status}`);
+  return (await res.json()) as T;
+}
+
 export function startExperiment(spec: ExperimentSpec): Promise<Answer> {
   return post("/api/experiments", spec);
 }
@@ -114,6 +148,7 @@ export function abortExperiment(id: number): Promise<Answer> {
 
 /** Every experiment, newest first (#172). */
 export async function fetchExperiments(signal?: AbortSignal): Promise<Experiment[]> {
+  if (DEMO) return []; // nothing to follow after a refresh: a replay starts on a click
   const res = await fetch(`/api/experiments`, { signal });
   if (!res.ok) throw new Error(`GET /experiments failed: HTTP ${res.status}`);
   return (await res.json()) as Experiment[];
@@ -121,6 +156,11 @@ export async function fetchExperiments(signal?: AbortSignal): Promise<Experiment
 
 /** One poll of #78; throws when there is no answer, the caller decides when to try again. */
 export async function fetchExperiment(id: number, signal?: AbortSignal): Promise<Experiment> {
+  if (DEMO) {
+    const run = await read<Experiment>(`${FILES}${id}.json`, signal);
+    const started = replays.get(id);
+    return started === undefined ? run : replayed(run, ((Date.now() - started) / 1000) * SPEED);
+  }
   const res = await fetch(`/api/experiments/${id}`, { signal });
   if (!res.ok) throw new Error(`GET /experiments/${id} failed: HTTP ${res.status}`);
   return (await res.json()) as Experiment;
@@ -131,6 +171,7 @@ export type Saved = { ok: true; topology: Topology } | { ok: false; reason: stri
 
 /** Save a topology; a change of the lab is then applied in the background (GET /lab). */
 export async function saveTopology(topology: Topology): Promise<Saved> {
+  if (DEMO) return { ok: false, reason: NOT_IN_DEMO };
   let res: Response;
   try {
     res = await fetch("/api/topology", {
@@ -150,12 +191,14 @@ export type LabState = "running" | "restarting" | "failed";
 export type LabStatus = { state: LabState; error: string | null };
 
 export async function fetchLab(signal?: AbortSignal): Promise<LabStatus> {
+  if (DEMO) return { state: "running", error: null }; // the line itself is the demo's (#235)
   const res = await fetch("/api/lab", { signal });
   if (!res.ok) throw new Error(`GET /lab failed: HTTP ${res.status}`);
   return (await res.json()) as LabStatus;
 }
 
 async function post(path: string, body?: unknown): Promise<Answer> {
+  if (DEMO) return { ok: false, reason: NOT_IN_DEMO };
   let res: Response;
   try {
     res = await fetch(path, {

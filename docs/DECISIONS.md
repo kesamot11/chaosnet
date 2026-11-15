@@ -702,8 +702,11 @@ on Tomáš's machine; the demo runs on the internet with no controller and no da
 visitor clicks through it alone, and that shows the app really works; a video tells one
 fixed story and goes stale with every UI change.
 
-**2. Start replays a recorded real run, 5× faster.** The chart fills second by second,
-magenta marks the link during inject, and the verdict comes at the end. The run is
+**2. Start replays a recorded real run, 5× faster.** It plays like a real run: the
+progress bar moves, each phase's chart appears when the phase ends, magenta marks the
+link during inject, and the verdict comes at the end. (Corrected on 2026-11-14 in #234:
+this first said the chart fills second by second, which a real run doesn't do; Tomáš
+chose "like a real run".) The run is
 labelled "Recording of a real run, <date>, replayed 5× faster". Nothing is generated
 (ADR-002: replays are recordings of real runs, never synthesised data).
 

@@ -9,11 +9,12 @@ export function phaseProgress(
   started_ms: number | null,
   total_s: number,
   now_ms: number,
+  speed = 1, // a demo replays a recording faster (ADR-012)
 ): Progress {
   if (started_ms == null) {
     return { kind: "unknown", total_s };
   }
-  const elapsed_s = (now_ms - started_ms) / 1000;
+  const elapsed_s = ((now_ms - started_ms) / 1000) * speed;
   if (elapsed_s <= total_s) {
     return { kind: "running", elapsed_s, total_s };
   }
