@@ -58,6 +58,7 @@ function experiment(results: Experiment["results"]): Experiment {
   return {
     id: 1,
     name: "x",
+    created_at: "2026-11-15T10:00:00Z",
     state: "recover",
     spec: {
       name: "x",

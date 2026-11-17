@@ -1,4 +1,12 @@
-import { END_STATES, type Experiment, JAEGER, type LinkSettings, type Phase, SPEED } from "./api";
+import {
+  DEMO,
+  END_STATES,
+  type Experiment,
+  JAEGER,
+  type LinkSettings,
+  type Phase,
+  SPEED,
+} from "./api";
 import { phaseProgress, recall } from "./progress";
 import { degradedRate, errorRate } from "./results";
 
@@ -44,8 +52,13 @@ export function ExperimentStatus({ experiment, unreachable, onAbort }: Props) {
       <h2>
         {experiment.name}: {experiment.state} {n > 0 && `(${n}/3)`}
       </h2>
+      {DEMO && (
+        <p>
+          Recording of a real run, {experiment.created_at.slice(0, 10)}, replayed {SPEED}× faster.
+        </p>
+      )}
       {n > 0 && <PhaseBar experiment={experiment} />}
-      {!END_STATES.has(experiment.state) && (
+      {!DEMO && !END_STATES.has(experiment.state) && (
         <button type="button" onClick={onAbort}>
           Abort
         </button>
@@ -100,7 +113,9 @@ export function ExperimentStatus({ experiment, unreachable, onAbort }: Props) {
                     <td>{(rate * 100).toFixed(1)}</td>
                     <td>{((degradedRate(s) ?? 0) * 100).toFixed(1)}</td>
                     <td>
-                      {s.example_trace && <a href={`${JAEGER}/trace/${s.example_trace}`}>trace</a>}
+                      {!DEMO && s.example_trace && (
+                        <a href={`${JAEGER}/trace/${s.example_trace}`}>trace</a>
+                      )}
                     </td>
                   </>
                 )}

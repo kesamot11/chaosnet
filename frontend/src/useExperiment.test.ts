@@ -112,3 +112,16 @@ test("a browser that refuses storage still polls (#99)", async () => {
   expect(result.current.experiment?.state).toBe("inject");
   expect(result.current.unreachable).toBe(false);
 });
+
+test("a new start polls the same id again, also after its end (a demo replay, #235)", async () => {
+  const fetch = controllerSays("completed", "baseline");
+  const { result, rerender } = renderHook(({ start }) => useExperiment(7, start), {
+    initialProps: { start: 1 },
+  });
+  await wait(POLL_MS);
+  expect(result.current.experiment?.state).toBe("completed");
+  rerender({ start: 2 });
+  await wait(0);
+  expect(result.current.experiment?.state).toBe("baseline");
+  expect(fetch).toHaveBeenCalledTimes(2);
+});

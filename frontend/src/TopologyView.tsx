@@ -25,7 +25,8 @@ type Props = {
   onMove: (service: string, position: Point) => void; // a service was dragged and dropped (#192)
   service?: string | null; // the selected service (#193)
   onSelectService?: (service: string) => void;
-  onConnect?: (from: string, to: string) => void; // a link drawn from a caller to a callee (#194)
+  // a link drawn from a caller to a callee (#194); without it, no link can be drawn (demo, #235)
+  onConnect?: (from: string, to: string) => void;
   faulted?: string | null; // the link whose fault is active now, drawn in magenta (#206)
 };
 
@@ -40,7 +41,7 @@ export function TopologyView({
   onMove,
   service = null,
   onSelectService = () => {},
-  onConnect = () => {},
+  onConnect,
   faulted = null,
 }: Props) {
   // While a node is dragged, React Flow moves it in this state; a new topology (a save,
@@ -70,7 +71,8 @@ export function TopologyView({
         onNodeClick={(_, node) => onSelectService(node.id)}
         // any link, also one without a proxy: it can still be removed (Tomáš)
         onEdgeClick={(_, edge) => onSelect(edge.id)}
-        onConnect={(c) => onConnect(c.source, c.target)}
+        nodesConnectable={onConnect !== undefined}
+        onConnect={(c) => onConnect?.(c.source, c.target)}
         colorMode="dark"
         fitView
       >
