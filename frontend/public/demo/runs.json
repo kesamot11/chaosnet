@@ -1,0 +1,8 @@
+[
+  { "id": 15, "link": "orders-inventory", "name": "Timeout only",
+    "about": "No protection but a 0.5 s timeout: every request waits half a second, then fails." },
+  { "id": 16, "link": "orders-inventory", "name": "Circuit breaker",
+    "about": "After too many failures the breaker opens and stops calling inventory: requests fail fast instead of waiting, and it tries again with one trial call." },
+  { "id": 17, "link": "orders-inventory", "name": "Fallback",
+    "about": "Instead of an error, orders answers without inventory, marked as degraded." }
+]
