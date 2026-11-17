@@ -111,7 +111,8 @@ select:hover {
   border-color: var(--muted);
 }
 
-input[type="checkbox"] {
+input[type="checkbox"],
+input[type="radio"] {
   accent-color: var(--main);
 }
 
@@ -379,12 +380,12 @@ progress {
   gap: 12px;
 }
 
-.drawer-body fieldset label:has(input[type="checkbox"]) {
+.drawer-body fieldset label:has(input[type="checkbox"], input[type="radio"]) {
   justify-content: flex-start;
   gap: 8px;
 }
 
-.drawer-body fieldset input:not([type="checkbox"]),
+.drawer-body fieldset input:not([type="checkbox"], [type="radio"]),
 .drawer-body fieldset select {
   width: 104px;
   box-sizing: border-box;

@@ -20,6 +20,7 @@ function experiment(fields: Partial<Experiment>): Experiment {
   return {
     id: 7,
     name: "slow inventory",
+    created_at: "2026-11-15T10:00:00Z",
     state: "inject",
     spec: {
       name: "slow inventory",

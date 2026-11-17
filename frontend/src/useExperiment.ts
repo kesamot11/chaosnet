@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { END_STATES, type Experiment, fetchExperiment, type State } from "./api";
+import { END_STATES, type Experiment, fetchExperiment, SPEED, type State } from "./api";
 
 import { remember } from "./progress";
 
-export const POLL_MS = 1000; // Sprint 4 decision 3
+// Sprint 4 decision 3. A demo replay runs SPEED× faster, so it is polled as much more
+// often: a new phase is then noticed within 1 s of the recording, as in the real lab (#235).
+export const POLL_MS = 1000 / SPEED;
 export const RETRY_MS = 30_000; // after no answer; back to POLL_MS once the controller answers
 
 /**
@@ -11,12 +13,14 @@ export const RETRY_MS = 30_000; // after no answer; back to POLL_MS once the con
  *
  * No answer is not an end: after a controller restart, reconcile marks the experiment
  * aborted (#55), and the next answer shows that. Polling stops when the component goes
- * away or `id` changes.
+ * away or `id` changes, and starts again on a new `start`: a demo run replayed again keeps
+ * its id (#235).
  */
-export function useExperiment(id: number | null) {
+export function useExperiment(id: number | null, start = 0) {
   const [experiment, setExperiment] = useState<Experiment | null>(null);
   const [unreachable, setUnreachable] = useState(false);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new `start` polls the same id again
   useEffect(() => {
     setExperiment(null);
     setUnreachable(false);
@@ -49,7 +53,7 @@ export function useExperiment(id: number | null) {
       polling.abort(); // also cancels a request still on its way
       clearTimeout(timer);
     };
-  }, [id]);
+  }, [id, start]);
 
   return { experiment, unreachable };
 }

@@ -1,5 +1,5 @@
 import { type RefObject, useEffect, useRef, useState } from "react";
-import { type Experiment, JAEGER } from "./api";
+import { DEMO, type Experiment, JAEGER } from "./api";
 import { segments, timeline, toPoints } from "./chart";
 
 // The size until the plot is measured, and in tests: jsdom has no layout.
@@ -123,7 +123,7 @@ export function LatencyChart({ experiment }: { experiment: Experiment }) {
         max={measured.length > 0 ? Math.max(...measured) : 0}
         format={(v) => `${v.toFixed(1)} ms`}
         phaseStarts={t.phaseStarts}
-        traces={t.traces}
+        traces={DEMO ? [] : t.traces} // no Jaeger behind the demo (#235)
       />
       <Chart
         label="error rate"
@@ -131,7 +131,7 @@ export function LatencyChart({ experiment }: { experiment: Experiment }) {
         max={1}
         format={(v) => `${(v * 100).toFixed(0)} %`}
         phaseStarts={t.phaseStarts}
-        traces={t.traces}
+        traces={DEMO ? [] : t.traces} // no Jaeger behind the demo (#235)
       />
     </section>
   );

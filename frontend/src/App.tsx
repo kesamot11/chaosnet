@@ -1,10 +1,14 @@
 import { useEffect, useState } from "react";
 import {
   abortExperiment,
+  DEMO,
   END_STATES,
+  fetchExperiment,
   fetchExperiments,
+  fetchRuns,
   fetchTopology,
   type LabStatus,
+  type Run,
   saveTopology,
   type Topology,
 } from "./api";
@@ -15,6 +19,8 @@ import { ExperimentStatus } from "./ExperimentStatus";
 import { addLink, addService, removeLink, removeService, withPosition, withSettings } from "./edit";
 import { LatencyChart } from "./LatencyChart";
 import { LinkPanel } from "./LinkPanel";
+import { ReplayForm } from "./ReplayForm";
+import { topologyOf } from "./replay";
 import { TopologyView } from "./TopologyView";
 import { useExperiment } from "./useExperiment";
 import { useLab } from "./useLab";
@@ -27,7 +33,9 @@ export function App() {
   const [selection, setSelection] = useState<Selection | null>(null);
   // The experiment started last; it outlives the form, which follows the selected link.
   const [experimentId, setExperimentId] = useState<number | null>(null);
-  const { experiment, unreachable } = useExperiment(experimentId);
+  const [starts, setStarts] = useState(0); // a demo run replayed again keeps its id (#235)
+  const { experiment, unreachable } = useExperiment(experimentId, starts);
+  const [runs, setRuns] = useState<Run[]>([]); // the demo's recorded runs (#235)
   // When a restart ends, the topology may be the previous one again (a rollback, #191).
   const lab = useLab(() => {
     fetchTopology()
@@ -100,6 +108,15 @@ export function App() {
     return () => request.abort(); // the component went away: stop the request
   }, []);
 
+  useEffect(() => {
+    if (!DEMO) return;
+    const request = new AbortController();
+    fetchRuns(request.signal)
+      .then(setRuns)
+      .catch(() => {}); // no runs: the form says none was recorded
+    return () => request.abort();
+  }, []);
+
   // After a refresh: follow the newest experiment, running or the last one (#172).
   useEffect(() => {
     const request = new AbortController();
@@ -119,7 +136,7 @@ export function App() {
         <h1>ChaosNet</h1>
         {error !== null && <p role="alert">Controller not reachable: {error}</p>}
         {error === null && topology === null && <p>Loading the lab…</p>}
-        {lab !== null && <LabLine lab={lab} />}
+        {DEMO ? <DemoLine /> : lab !== null && <LabLine lab={lab} />}
         {draft !== null && (
           // seen and saved with the editor closed too (Tomáš, #208); the same save as the editor's
           <div className="unsaved">
@@ -139,36 +156,49 @@ export function App() {
             selected={selected}
             onSelect={(name) => {
               setSelection({ kind: "link", name });
-              setOpen((o) => ({ ...o, left: true, right: true })); // settings and the form (Tomáš)
+              // settings and the form (Tomáš); the demo has no editor (#235)
+              setOpen((o) => ({ ...o, left: !DEMO, right: true }));
             }}
-            onMove={draft === null ? move : (s, p) => edit((t) => withPosition(t, s, p))}
+            onMove={
+              DEMO
+                ? (s, p) => setTopology((t) => t && withPosition(t, s, p)) // never saved (#235)
+                : draft === null
+                  ? move
+                  : (s, p) => edit((t) => withPosition(t, s, p))
+            }
             service={service}
-            onSelectService={(name) => {
-              setSelection({ kind: "service", name });
-              setOpen((o) => ({ ...o, left: true })); // Remove is there (Tomáš)
-            }}
-            onConnect={connect}
+            onSelectService={
+              DEMO
+                ? undefined
+                : (name) => {
+                    setSelection({ kind: "service", name });
+                    setOpen((o) => ({ ...o, left: true })); // Remove is there (Tomáš)
+                  }
+            }
+            onConnect={DEMO ? undefined : connect}
             // a fault is in the lab only during inject (Tomáš)
             faulted={experiment?.state === "inject" ? experiment.spec.fault.link : null}
           />
-          <Drawer side="left" label="Editor" open={open.left} onToggle={() => toggle("left")}>
-            <Editor
-              changed={draft !== null}
-              removable={selected !== null ? `link ${selected}` : service}
-              saving={saving}
-              refused={refused}
-              onAdd={(name) => edit((t) => addService(t, name))}
-              onRemove={remove}
-              onSave={save}
-            >
-              {link !== undefined && (
-                <LinkPanel
-                  link={link}
-                  onChange={(c) => edit((t) => withSettings(t, link.name, c))}
-                />
-              )}
-            </Editor>
-          </Drawer>
+          {!DEMO && (
+            <Drawer side="left" label="Editor" open={open.left} onToggle={() => toggle("left")}>
+              <Editor
+                changed={draft !== null}
+                removable={selected !== null ? `link ${selected}` : service}
+                saving={saving}
+                refused={refused}
+                onAdd={(name) => edit((t) => addService(t, name))}
+                onRemove={remove}
+                onSave={save}
+              >
+                {link !== undefined && (
+                  <LinkPanel
+                    link={link}
+                    onChange={(c) => edit((t) => withSettings(t, link.name, c))}
+                  />
+                )}
+              </Editor>
+            </Drawer>
+          )}
           <Drawer
             side="right"
             label="Experiment"
@@ -185,17 +215,35 @@ export function App() {
               />
             )}
             <p>
-              {selected === null
-                ? "Click a link to choose where the fault goes."
-                : `Selected link: ${selected}`}
+              {selected !== null
+                ? `Selected link: ${selected}`
+                : DEMO
+                  ? "Click a link to replay an experiment measured on it."
+                  : "Click a link to choose where the fault goes."}
             </p>
-            {link?.available && draft !== null && (
+            {DEMO && link !== undefined && (
+              <ReplayForm
+                key={link.name} // another link: its own runs, the first one chosen
+                link={link.name}
+                runs={runs.filter((r) => r.link === link.name)}
+                running={experiment !== null && !END_STATES.has(experiment.state)}
+                onStarted={(id) => {
+                  setExperimentId(id);
+                  setStarts((n) => n + 1);
+                  setOpen((o) => ({ ...o, bottom: true })); // the chart starts to fill (Tomáš)
+                  fetchExperiment(id) // the lab the run was recorded on (Tomáš, #235)
+                    .then((run) => setTopology(topologyOf(run)))
+                    .catch(() => {}); // not loaded: the replay's own poll reports it
+                }}
+              />
+            )}
+            {!DEMO && link?.available && draft !== null && (
               // Start stays allowed (Tomáš), but the lab changes only on Save
               <p role="note">
                 Unsaved changes: an experiment started now runs with the saved settings.
               </p>
             )}
-            {link?.available && (
+            {!DEMO && link?.available && (
               <ExperimentForm
                 link={link.name}
                 running={experiment !== null && !END_STATES.has(experiment.state)}
@@ -205,7 +253,7 @@ export function App() {
                 }}
               />
             )}
-            {link !== undefined && !link.available && (
+            {!DEMO && link !== undefined && !link.available && (
               // a drawn link gets its proxy on Save; a saved one has lost it (Tomáš's review)
               <p>
                 {topology?.links.some((l) => l.name === link.name)
@@ -223,12 +271,22 @@ export function App() {
             {experiment !== null ? (
               <LatencyChart experiment={experiment} />
             ) : (
-              <p>Start an experiment to see its latency here.</p>
+              <p>{DEMO ? "Replay a run" : "Start an experiment"} to see its latency here.</p>
             )}
           </Drawer>
         </div>
       )}
     </main>
+  );
+}
+
+/** The demo's lab line (#235): what this is, and where the real lab is (Tomáš). */
+function DemoLine() {
+  return (
+    <p>
+      A demo: real runs of the lab, recorded and replayed. Click a link to replay one. The whole lab
+      runs on your own machine, see <a href="https://github.com/kesamot11/chaosnet">GitHub</a>.
+    </p>
   );
 }
 
