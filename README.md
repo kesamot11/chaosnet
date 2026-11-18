@@ -1,13 +1,30 @@
 # ChaosNet
 
-An interactive laboratory for building, running, observing and deliberately
-breaking real distributed systems and networks.
+ChaosNet is a project that shows how systems made of real services cope with different
+types of faults.
 
-> **Status:** early development (Sprint 1). Nothing here is usable yet. See the
-> [project board](https://github.com/users/kesamot11/projects/2) and
-> [milestones](https://github.com/kesamot11/chaosnet/milestones).
+**[Try the demo](https://kesamot11.github.io/chaosnet/)** in your browser, nothing to
+install. The demo replays three runs recorded for it; each shows its own setup.
+
+![The demo after replaying the circuit breaker run: the verdict, the results and the p95 chart](docs/demo.png)
 
 ChaosNet measures real system behaviour. It never fabricates results.
+
+## Experiments
+
+Every experiment, with its question, prediction, setup and measured results, is in
+[docs/EXPERIMENTS.md](docs/EXPERIMENTS.md):
+
+- **EXP-001:** the healthy lab's latency, and what Docker's port forwarding and the fault proxy add to it.
+- **EXP-002:** +300 ms on one link, and how it meets a 0.5 s per-attempt timeout with retries.
+- **EXP-003:** does the experiment controller measure the same as the manual method.
+- **EXP-004:** retry amplification: how many attempts reach a hanging service.
+- **EXP-005:** retrying on one layer only, and backoff with jitter.
+- **EXP-006:** a circuit breaker against a hanging service.
+- **EXP-007:** a retry budget against the retry storm.
+- **EXP-008:** what traces show with retries and with an open breaker.
+- **EXP-009:** what tracing costs.
+- **EXP-010:** does a fallback save requests without hiding the outage.
 
 ## Documentation
 
