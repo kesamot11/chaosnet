@@ -571,3 +571,38 @@ is `absolute` (feedback loop), a foreign service on a link's end. Own words:
   only at start).
 - *Why does Save answer at once?* Right: a refresh would lose the result. Fixed since
   Sprint 9.
+
+---
+
+## 2026-11-19: Sprint 11, the public replay demo
+
+- **A replay shows a recording; it never generates data**: the demo reads the API's own
+  answer from a file and shows it as it ran. Only time changes (5× faster), and a
+  phase's results appear when the phase ends, as in a real run.
+- **A build-time flag, not a runtime check**: `import.meta.env.MODE === "demo"` is a
+  constant, so the build drops the code that writes. A runtime check would ship it to
+  the public page.
+- **An effect runs again only when a dependency changes**: Start on the same run keeps
+  the same id, so a `start` counter is a dependency too.
+- **A static site under a sub-path**: Pages serves the project under `/chaosnet/`, so the
+  build links every file from there (`--base /chaosnet/`).
+- **Deploy what was released**: the demo deploys when a release is published, so the
+  web shows a released version, not every merge.
+- **A controlled experiment changes one thing**: the three runs differ only in the
+  link's protection.
+- **A hypothesis checks only what it states**: the fallback run passed with every answer
+  `degraded`, because degraded is not an error.
+
+---
+
+## 2026-11-19: Sprint 11 interview check
+
+Quiz 9/10. Missed: a phase's results appear when the phase ends. Own words:
+
+- *How does the demo work without a backend?* Right on why. Say "replays real runs",
+  not "simulates"; the write code is not in the demo build.
+- *Is a fallback better than a breaker?* The breaker right; the fallback after a fill-in
+  sentence: "the breaker makes the failure fast, the fallback turns it into an answer".
+  A fallback alone still calls inventory every time.
+- *Why is the svg `absolute`?* Still weak; right after a fill-in sentence (the size of
+  the parent, a feedback loop, it would keep growing). Revisit in the Sprint 12 check.
