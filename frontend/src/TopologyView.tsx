@@ -28,6 +28,7 @@ type Props = {
   // a link drawn from a caller to a callee (#194); without it, no link can be drawn (demo, #235)
   onConnect?: (from: string, to: string) => void;
   faulted?: string | null; // the link whose fault is active now, drawn in magenta (#206)
+  hint?: string | null; // the link that blinks: click me (demo, #259)
 };
 
 /**
@@ -43,6 +44,7 @@ export function TopologyView({
   onSelectService = () => {},
   onConnect,
   faulted = null,
+  hint = null,
 }: Props) {
   // While a node is dragged, React Flow moves it in this state; a new topology (a save,
   // a rollback) replaces it.
@@ -57,7 +59,8 @@ export function TopologyView({
     // the services in between, where they are now (also while one is dragged): it goes around them
     data: { services: boxes(nodes, link) },
     label: link.available ? `${link.timeout_s} s, ${link.max_retries} retries` : "no proxy",
-    style: edgeStyle(link, link.name === selected, link.name === faulted),
+    style: edgeStyle(link, link.name === selected || link.name === hint, link.name === faulted),
+    className: link.name === hint ? "hint" : undefined,
   }));
 
   return (
@@ -144,7 +147,7 @@ function boxes(nodes: Node[], link: Link): Box[] {
     .map((n) => ({ ...n.position, width: NODE_WIDTH, height: NODE_HEIGHT }));
 }
 
-/** Magenta only while the link's fault is active (Tomáš); violet when selected. */
+/** Magenta only while the link's fault is active (Tomáš); violet when selected or hinted. */
 function edgeStyle(link: Link, isSelected: boolean, isFaulted: boolean) {
   const dashed = link.available ? {} : { strokeDasharray: "4 4" }; // no proxy
   const stroke = isFaulted ? "var(--fault)" : isSelected ? "var(--main)" : "var(--muted)";

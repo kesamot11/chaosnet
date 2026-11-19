@@ -190,6 +190,37 @@ progress {
   margin: 0;
 }
 
+/* the demo's guide (#259): what ChaosNet is, then the steps in a row, a done one ticked */
+.guide ol {
+  display: flex;
+  gap: 24px;
+  margin: 8px 0 0;
+  padding-left: 20px;
+  color: var(--main);
+}
+
+.guide li.done {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+/* the link to click first blinks: its line fades in and out, again and again */
+.react-flow__edge.hint .react-flow__edge-path {
+  animation: blink 0.8s ease-in-out infinite alternate;
+}
+
+@keyframes blink {
+  to {
+    opacity: 0.2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__edge.hint .react-flow__edge-path {
+    animation: none; /* violet and thick is enough */
+  }
+}
+
 .stage {
   position: relative; /* the drawers are placed against it */
   overflow: hidden; /* a closed drawer waits outside, unseen */
