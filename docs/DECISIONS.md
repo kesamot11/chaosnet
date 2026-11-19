@@ -756,3 +756,94 @@ deployment and changes the repository's settings, so it waits for Tomáš's sepa
 - A change to the experiment's JSON shape needs the recordings re-exported, or the demo
   breaks.
 - Traces stay in the local lab only; the demo shows them as plain lines.
+
+---
+
+## ADR-013: Machine learning finds a fault and its link, measured against a rule
+
+- **Status:** Accepted
+- **Date:** 2026-11-19 (Sprint 12 planning)
+- **Issues:** #251 (epic M10), #252–#257
+- **Decided by:** Tomáš; reasons below are his, recorded from the discussion
+
+### Context
+
+The project vision ends with "machine learning for anomaly detection and root-cause
+analysis". An LLM that explains results was considered first and rejected by Tomáš: it
+needs a paid API key that nobody who clones the repository would pay for, and it only
+describes numbers a person can already read. The lab has what anomaly detection usually
+lacks: it injects faults itself, so every second of every run is known to be normal or
+faulty, and on which link.
+
+### Decisions
+
+**1. Two questions.** *Detection:* is something wrong right now? *Root cause:* on which
+link?
+
+**2. A rule first, as the baseline.** "The cause is the deepest link that has problems":
+a slow callee makes every link above it slow too, because the callers wait for it. With
+an open breaker the deepest link doesn't wait; its `rejected` attempts show it.
+
+**3. Machine learning has to beat the rule on the same data, or it doesn't ship.**
+*Reason (Tomáš):* "I use ML for anomaly detection because it learns what is normal for
+each link, whereas for a ruleset I would need to optimize it for each link." A fixed
+threshold misses what our experiments already show: EXP-002 A raised p95 from 11 ms to
+312 ms, under a 500 ms threshold; a reset on a few connections barely changes latency;
+a service that is slow by design would alarm all the time.
+
+**4. Labelled data from the lab.** Every fault kind, at several strengths, on every link,
+each run several times. Every second keeps its numbers per link and its label (fault or
+not, and on which link). Baseline and recover are the normal data. First set: 3 kinds ×
+4 strengths × 2 links × 3 runs = 72 runs of 35 s, about 45 minutes.
+
+**5. Split by run, never by second.** Neighbouring seconds of one run are nearly the same,
+so a random split by second would leak them into the test (data leakage) and the score
+would lie. Cross-validation groups by run (`GroupKFold`); one fault strength is also held
+out completely, to see whether the model finds a fault it never saw.
+
+**6. Measured, not accuracy.** Faults are rare in real systems, so a detector that always
+says "fine" gets a high accuracy. Measured for the rule and the model, on the same test
+runs:
+
+| Metric | Question | Why it matters |
+|---|---|---|
+| precision | of the alarms, how many were real? | false alarms wake people up, then get ignored |
+| recall | of the faults, how many were found? | a missed fault is an outage nobody sees |
+| detection delay | seconds from the fault's start to the alarm | users wait every second |
+| root-cause accuracy | when it alarms, is the link right? | the wrong link sends people to the wrong place |
+
+The comparison is an experiment in `docs/EXPERIMENTS.md` (EXP-011), with predictions
+first.
+
+**7. Latency per link from a histogram in the lab.** Prometheus counts attempts per link
+and their outcome, but has no latency per link. Every caller also records how long each
+attempt took, in a histogram per link, scraped every second like the counters.
+
+**8. scikit-learn** (with numpy and scipy), approved by Tomáš as a new dependency of the
+backend's analysis only; the lab's services don't get it. *Reason:* the standard library
+for this, with `GroupKFold` and the metrics built in; a model written by hand in numpy
+would be more code and more bugs.
+
+**9. Offline first, then the winner goes live.** The rule and the model are measured on
+recorded runs (EXP-011). Then the UI shows, live during an experiment, the alarm and the
+link from whichever of them won. If the rule wins, EXP-011 says so: ML did not pay off
+here.
+
+### Alternatives rejected
+
+| Decision | Rejected | Why |
+|---|---|---|
+| — | an LLM explaining results | a paid key; describes what a person can already read |
+| 3 | only a rule | thresholds per link and per topology, tuned by hand |
+| 3 | only a model | without a baseline nobody knows whether it is worth it |
+| 5 | split by second | leaks neighbouring seconds into the test |
+| 6 | accuracy | high for a detector that never alarms |
+| 7 | latency per link from traces | assembled from single requests; the histogram gives it every second |
+
+### Consequences
+
+- The lab runs unattended for about 45 minutes per data set; the runs are kept like any
+  other experiment.
+- The result can be "the rule is good enough"; that is a valid finding, and the model
+  then stays out.
+- Network Lab (a Linux VM) waits until after this.
