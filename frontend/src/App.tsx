@@ -136,7 +136,15 @@ export function App() {
         <h1>ChaosNet</h1>
         {error !== null && <p role="alert">Controller not reachable: {error}</p>}
         {error === null && topology === null && <p>Loading the lab…</p>}
-        {DEMO ? <DemoLine /> : lab !== null && <LabLine lab={lab} />}
+        {DEMO ? (
+          <DemoGuide
+            clicked={selected !== null}
+            started={experimentId !== null}
+            ended={experiment !== null && END_STATES.has(experiment.state)}
+          />
+        ) : (
+          lab !== null && <LabLine lab={lab} />
+        )}
         {draft !== null && (
           // seen and saved with the editor closed too (Tomáš, #208); the same save as the editor's
           <div className="unsaved">
@@ -178,6 +186,8 @@ export function App() {
             onConnect={DEMO ? undefined : connect}
             // a fault is in the lab only during inject (Tomáš)
             faulted={experiment?.state === "inject" ? experiment.spec.fault.link : null}
+            // the demo's first step: the link with recorded runs blinks until a link is clicked (#259)
+            hint={DEMO && selected === null ? (runs[0]?.link ?? null) : null}
           />
           {!DEMO && (
             <Drawer side="left" label="Editor" open={open.left} onToggle={() => toggle("left")}>
@@ -281,12 +291,31 @@ export function App() {
 }
 
 /** The demo's lab line (#235): what this is, and where the real lab is (Tomáš). */
-function DemoLine() {
+/** What ChaosNet is and what to do first, for a visitor who knows nothing (#259; Tomáš's words). */
+function DemoGuide({
+  clicked,
+  started,
+  ended,
+}: {
+  clicked: boolean;
+  started: boolean;
+  ended: boolean;
+}) {
   return (
-    <p>
-      A demo: real runs of the lab, recorded and replayed. Click a link to replay one. The whole lab
-      runs on your own machine, see <a href="https://github.com/kesamot11/chaosnet">GitHub</a>.
-    </p>
+    <div className="guide">
+      <p>
+        <strong>ChaosNet</strong> breaks a small system of real services on purpose, so the people
+        who run such systems learn what to do when it fails for real. The whole lab runs on your own
+        machine, see <a href="https://github.com/kesamot11/chaosnet">GitHub</a>.
+      </p>
+      <ol>
+        <li className={clicked ? "done" : undefined}>
+          Click the blinking link, orders → inventory.
+        </li>
+        <li className={started ? "done" : undefined}>Pick a recorded run and press Start.</li>
+        <li className={ended ? "done" : undefined}>Watch what the fault does to the answers.</li>
+      </ol>
+    </div>
   );
 }
 

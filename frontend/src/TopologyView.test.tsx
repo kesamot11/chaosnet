@@ -96,6 +96,21 @@ test("a link is magenta only while its fault is active, else violet when selecte
   expect(stroke("gateway-orders")).toBe("var(--muted)");
 });
 
+test("only the hinted link blinks, the demo's first step (#259)", async () => {
+  render(
+    <TopologyView
+      topology={LAB}
+      selected={null}
+      onSelect={() => {}}
+      onMove={() => {}}
+      hint="orders-inventory"
+    />,
+  );
+  await screen.findByText("0.5 s, 2 retries");
+  expect(document.querySelector('[data-id="orders-inventory"]')).toHaveClass("hint");
+  expect(document.querySelector('[data-id="gateway-orders"]')).not.toHaveClass("hint");
+});
+
 test("a service drawn where it was dropped, the others where layout.ts puts them (#192)", () => {
   const moved: Topology = {
     ...LAB,
