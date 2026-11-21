@@ -793,8 +793,10 @@ a service that is slow by design would alarm all the time.
 
 **4. Labelled data from the lab.** Every fault kind, at several strengths, on every link,
 each run several times. Every second keeps its numbers per link and its label (fault or
-not, and on which link). Baseline and recover are the normal data. First set: 3 kinds ×
-4 strengths × 2 links × 3 runs = 72 runs of 35 s, about 45 minutes.
+not, and on which link). Baseline and recover are the normal data. First set: latency
+(25, 100, 200, 500 ms) and bandwidth (64, 16, 4, 1) at 4 strengths each, reset_peer at one,
+× 2 links × 3 runs = 54 runs of 35 s, about 35 minutes (#254; 72 at first, but a reset of
+a share of connections is all or nothing, measured in #254).
 
 **5. Split by run, never by second.** Neighbouring seconds of one run are nearly the same,
 so a random split by second would leak them into the test (data leakage) and the score
@@ -842,7 +844,7 @@ here.
 
 ### Consequences
 
-- The lab runs unattended for about 45 minutes per data set; the runs are kept like any
+- The lab runs unattended for about 35 minutes per data set; the runs are kept like any
   other experiment.
 - The result can be "the rule is good enough"; that is a valid finding, and the model
   then stays out.

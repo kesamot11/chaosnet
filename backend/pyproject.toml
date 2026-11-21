@@ -35,6 +35,7 @@ select = ["E", "F", "I", "B", "UP"]
 chaosnet-api = "chaosnet.api:main"
 chaosnet-fault = "chaosnet.fault_cli:main"
 chaosnet-lab = "chaosnet.labgen:main"
+chaosnet-dataset = "chaosnet.dataset:main"
 
 [tool.pyright]
 include = ["src", "tests"]
