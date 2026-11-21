@@ -7,13 +7,24 @@ from typing import Any
 
 import httpx
 from opentelemetry import trace
-from prometheus_client import Counter
+from prometheus_client import Counter, Histogram
 
 from chaosnet_lab.budget import RetryBudget
 
 # Counted by the caller, so attempts to a service that hangs are counted too (#116).
 ATTEMPTS = Counter("lab_attempts", "Attempts to call another service", ["hop", "outcome"])
 RETRIES_DENIED = Counter("lab_retries_denied", "Retries the retry budget refused", ["hop"])
+# How long each attempt took, until its answer or its failure: a timed-out attempt counts with
+# its timeout, or a hanging link would show no latency at all (Tomáš, #253; ADR-013).
+# Buckets fine around the lab's timeouts (0.5 s, 2 s) and faults (+300 ms, +1000 ms). A p95 from
+# them is an estimate, exact only to a bucket's width: attempts cut at 0.5 s show as ~738 ms
+# (Tomáš: kept, a link is compared with its own normal, not to the millisecond).
+ATTEMPT_SECONDS = Histogram(
+    "lab_attempt_duration_seconds",
+    "How long an attempt to call another service took",
+    ["hop"],
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1, 1.5, 2, 3, 5),
+)
 
 # Spans for every attempt (#158); a no-op unless tracing is set up (tracing.py).
 tracer = trace.get_tracer("chaosnet_lab.client")
@@ -78,7 +89,8 @@ async def call_downstream(
         with tracer.start_as_current_span(f"attempt {attempt + 1}") as span:
             span.set_attribute("chaosnet.attempt", attempt + 1)
             try:
-                res = await client.request(method, url, json=json, timeout=timeout_s)
+                with ATTEMPT_SECONDS.labels(hop).time():  # also when the attempt fails
+                    res = await client.request(method, url, json=json, timeout=timeout_s)
                 ATTEMPTS.labels(hop, "http_error" if res.is_error else "ok").inc()
                 span.set_attribute("chaosnet.outcome", "http_error" if res.is_error else "ok")
                 return res
