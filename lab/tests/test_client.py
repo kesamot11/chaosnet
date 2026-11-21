@@ -1,4 +1,5 @@
 import asyncio
+import time
 from collections.abc import Callable
 
 import httpx
@@ -217,6 +218,34 @@ def test_a_hanging_service_is_counted_once_per_attempt() -> None:
     with pytest.raises(DownstreamError):
         call()
     assert attempts("timeout") - before == 3
+
+
+# --- how long each attempt took (#253) ----------------------------------------------------
+
+
+def timed(name: str) -> float:
+    return REGISTRY.get_sample_value(f"lab_attempt_duration_seconds_{name}", {"hop": HOP}) or 0
+
+
+def test_every_attempt_is_timed_also_a_failed_one() -> None:
+    before = timed("count")
+    call, _ = run([refused(), timed_out(), 200])
+    call()
+    assert timed("count") - before == 3
+
+
+def test_an_attempt_is_timed_until_its_answer() -> None:
+    def slow(request: httpx.Request) -> httpx.Response:
+        time.sleep(0.05)
+        return httpx.Response(200)
+
+    async def go() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(slow)) as client:
+            await call_downstream(client, "GET", URL, hop=HOP, timeout_s=0.5, max_retries=0)
+
+    before = timed("sum")
+    asyncio.run(go())
+    assert timed("sum") - before >= 0.05
 
 
 # --- retry_wait (#119) -------------------------------------------------------------------
