@@ -1,4 +1,4 @@
-.PHONY: check fmt integration demo-export
+.PHONY: check fmt integration demo-export dataset
 
 PROJECTS := backend lab frontend
 
@@ -32,3 +32,9 @@ demo-export:
 	  curl -fsS http://127.0.0.1:8476/experiments/$$id -o frontend/public/demo/$$id.json || exit 1; \
 	  echo "frontend/public/demo/$$id.json"; \
 	done
+
+# Labelled runs for machine learning (#254, ADR-013): 54 experiments, about 35 minutes.
+# Needs the lab, its Prometheus and the controller running; writes data/runs.csv.
+dataset:
+	@mkdir -p data
+	cd backend && uv run chaosnet-dataset ../data/runs.csv
