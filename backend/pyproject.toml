@@ -10,6 +10,7 @@ dependencies = [
     "fastapi>=0.143.0",
     "httpx>=0.28.1",
     "pydantic>=2.14.1",
+    "scikit-learn>=1.9.1",
     "uvicorn>=0.54.0",
 ]
 
@@ -36,6 +37,7 @@ chaosnet-api = "chaosnet.api:main"
 chaosnet-fault = "chaosnet.fault_cli:main"
 chaosnet-lab = "chaosnet.labgen:main"
 chaosnet-dataset = "chaosnet.dataset:main"
+chaosnet-evaluate = "chaosnet.evaluate:main"
 
 [tool.pyright]
 include = ["src", "tests"]
