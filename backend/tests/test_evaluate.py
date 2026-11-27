@@ -1,4 +1,4 @@
-from chaosnet.evaluate import folds, measure, rule
+from chaosnet.evaluate import folds, measure, rule, tree_answers
 
 # 10 runs of 35 seconds, like data/runs.csv
 ROWS = [{"run": run, "second": s} for run in range(26, 36) for s in range(35)]
@@ -10,8 +10,8 @@ def test_a_run_is_never_on_both_sides_of_a_split() -> None:
 
 
 def test_every_second_is_tested_exactly_once() -> None:
-    tested = sorted(i for _, test in folds(ROWS) for i in test)
-    assert tested == list(range(len(ROWS)))
+    tree_answers = sorted(i for _, test in folds(ROWS) for i in test)
+    assert tree_answers == list(range(len(ROWS)))
 
 
 def second(fault_link: str = "", **numbers: float) -> dict[str, object]:
@@ -59,3 +59,34 @@ def test_the_four_numbers() -> None:
     assert m["detection delay s (median)"] == 1
     assert m["runs never detected"] == 0
     assert m["root-cause accuracy"] == 1 / 2  # the second true alarm blamed the caller
+
+
+def runs(
+    fault_link: str, kind: str, strength: str, p95: float, first: int = 0
+) -> list[dict[str, object]]:
+    """Ten runs of 10 seconds: 5 normal seconds, then 5 of a fault that slows the link."""
+    out: list[dict[str, object]] = []
+    for run in range(first, first + 10):
+        for s in range(10):
+            faulty = s >= 5
+            row = second(
+                fault_link if faulty else "", orders_inventory__p95_ms=p95 if faulty else 9
+            )
+            out.append(
+                {**row, "run": str(run), "second": str(s), "kind": kind, "strength": strength}
+            )
+    return out
+
+
+def test_the_tree_learns_a_slow_link_from_other_runs() -> None:
+    rows = runs("orders-inventory", "latency", "25", p95=60)  # under the rule's 100 ms
+    detect = tree_answers(rows)
+    assert measure(rows, detect)["recall"] == 1
+    assert measure(rows, rule)["recall"] == 0
+
+
+def test_a_held_out_fault_never_trains_the_tree() -> None:
+    # bandwidth 16 is the only fault: a tree that never saw it knows only "no fault"
+    quiet = runs("", "latency", "25", p95=9)
+    rows = quiet + runs("orders-inventory", "bandwidth", "16", p95=60, first=10)
+    assert measure(rows, tree_answers(rows))["recall"] == 0

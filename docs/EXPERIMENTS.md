@@ -804,3 +804,124 @@ the model finds **8 of the 9 faults**; it misses only **bandwidth 64**.
   the 100 ms limit, not the model, may be why.
 - The model is trained and tested on one lab. A new link or a new topology means new
   runs and training again.
+
+**Setup (measuring):** `backend/src/chaosnet/evaluate.py` on main at `882f68e` plus this
+change (#256); `data/runs.csv` unchanged since #254; scikit-learn 1.9.1. 2026-11-27, after
+the prediction PR (#270) was merged. No lab run: the data are the recorded runs.
+
+**Method:** `cd backend && uv run chaosnet-evaluate ../data/runs.csv`. For each of the 5
+folds, a tree is trained on the training runs without bandwidth 16 and answers every
+second of the test runs; every second is answered once, by a tree that never saw its run.
+The rule answers the same seconds. `measure()` scores both on all 1,944 seconds.
+
+**Results:**
+
+```
+                               rule   tree
+precision                      0.90   0.95
+recall                         0.66   0.91
+detection delay s (median)     0.00   1.00
+runs never detected              18      0
+root-cause accuracy            0.99   1.00
+
+runs found, of 6 per fault
+bandwidth 1                       6      6 
+bandwidth 16                      0      6   (held out)
+bandwidth 4                       6      6 
+bandwidth 64                      0      6 
+latency 100                       6      6 
+latency 200                       6      6 
+latency 25                        0      6 
+latency 500                       6      6 
+reset_peer                        6      6 
+```
+
+| | rule | tree |
+|---|---|---|
+| faulty seconds found | 546 of 827 | 755 of 827 |
+| false alarms in baseline (594 s) | 0 | 2 |
+| false alarms in recover (523 s) | 63 | 40 |
+
+Weak faults, faulty seconds the tree found: latency 25 85 of 91, bandwidth 16 (held out)
+84 of 90, bandwidth 64 73 of 90. The rule found none of them.
+
+The tree, trained once on every run but the held-out ones, to be read (the scores above
+come from the 5 fold trees, which differ a little):
+
+```
+|--- gateway-orders p50_ms <= 13.34
+|   |--- orders-inventory ok <= 0.25
+|   |   |--- gateway-orders connection_error <= 19.93
+|   |   |   |--- orders-inventory connection_error <= 29.74
+|   |   |   |   |--- class: none
+|   |   |   |--- orders-inventory connection_error >  29.74
+|   |   |   |   |--- class: orders-inventory
+|   |   |--- gateway-orders connection_error >  19.93
+|   |   |   |--- class: gateway-orders
+|   |--- orders-inventory ok >  0.25
+|   |   |--- orders-inventory p95_ms <= 19.06
+|   |   |   |--- gateway-orders p95_ms <= 54.38
+|   |   |   |   |--- class: none
+|   |   |   |--- gateway-orders p95_ms >  54.38
+|   |   |   |   |--- class: none
+|   |   |--- orders-inventory p95_ms >  19.06
+|   |   |   |--- gateway-orders p95_ms <= 24.36
+|   |   |   |   |--- class: orders-inventory
+|   |   |   |--- gateway-orders p95_ms >  24.36
+|   |   |   |   |--- class: none
+|--- gateway-orders p50_ms >  13.34
+|   |--- orders-inventory p95_ms <= 13.62
+|   |   |--- orders-inventory ok <= 19.50
+|   |   |   |--- gateway-orders p50_ms <= 122.84
+|   |   |   |   |--- class: none
+|   |   |   |--- gateway-orders p50_ms >  122.84
+|   |   |   |   |--- class: gateway-orders
+|   |   |--- orders-inventory ok >  19.50
+|   |   |   |--- gateway-orders ok <= 20.29
+|   |   |   |   |--- class: gateway-orders
+|   |   |   |--- gateway-orders ok >  20.29
+|   |   |   |   |--- class: gateway-orders
+|   |--- orders-inventory p95_ms >  13.62
+|   |   |--- gateway-orders ok <= 20.27
+|   |   |   |--- orders-inventory ok <= 20.48
+|   |   |   |   |--- class: orders-inventory
+|   |   |   |--- orders-inventory ok >  20.48
+|   |   |   |   |--- class: orders-inventory
+|   |   |--- gateway-orders ok >  20.27
+|   |   |   |--- orders-inventory p50_ms <= 344.70
+|   |   |   |   |--- class: none
+|   |   |   |--- orders-inventory p50_ms >  344.70
+|   |   |   |   |--- class: orders-inventory
+
+```
+
+**Interpretation:**
+
+- **The prediction was 8 of 9, missing bandwidth 64. It was 9 of 9.** Tomáš thought
+  bandwidth 64 sits inside the normal p95. It does, but its **p50** doubles
+  (gateway-orders 7.2 → 15.3 ms, orders-inventory 2.9 → 8.6 ms, medians). The tree's
+  first question is `gateway-orders p50_ms <= 13.34`. p95 is the slowest 5 %, which in
+  normal seconds already reaches 33 ms. p50 is the typical attempt, and it is steady,
+  so a small shift shows.
+- **Tomáš's worry:** did the tree learn "faster than normal is a fault"? No. Bandwidth
+  64 is slower than the normal median on both links, not faster, and the tree raises 2
+  false alarms in 594 baseline seconds. (Claude's first table had compared it with the
+  normal *maximum*, which made it look faster.)
+- **The held-out fault was found** in 84 of 90 seconds. The tree had seen bandwidth 64
+  and 4 but never 16, so it handled a new strength of a known fault.
+- **The tree is 1 s slower to alarm** (median), and still has 40 false alarms in the
+  first 2 s of recover, for the same `rate(...[3s])` window as the rule.
+- **Verdict:** the tree wins on precision, recall and root cause, and loses 1 s of
+  detection delay. By ADR-013 (decision 9) it is what goes live (#257).
+
+**Limitations:**
+
+- **A straw man, partly:** the rule watches only p95 with a limit of 100 ms. Tomáš
+  expects a rule on p50 to do about as well. It is not measured here: it was thought of
+  after seeing these results, so a limit chosen now would fit these runs. It is the next
+  experiment, on newly recorded runs, with a prediction first.
+- One lab, one topology, 3 repeats per fault. Runs of the same fault and link are very
+  alike, so the folds are easier than a real system; the held-out bandwidth 16 is the
+  fairer number.
+- A new link needs new runs and training (see the setup).
+- The 100 ms rule is unchanged and stays in the code as the baseline.
