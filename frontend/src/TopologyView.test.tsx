@@ -121,3 +121,23 @@ test("a service drawn where it was dropped, the others where layout.ts puts them
   expect(positions.gateway).toEqual({ x: 0, y: 0 }); // column 0, row 0
   expect(positions.inventory).toEqual({ x: 600, y: 0 }); // column 2
 });
+
+test("the alarm is an orange label beside the link; the fault keeps its line (#257, Tomáš)", async () => {
+  render(
+    <TopologyView
+      topology={LAB}
+      selected={null}
+      onSelect={() => {}}
+      onMove={() => {}}
+      faulted="orders-inventory"
+      alarm="orders-inventory"
+    />,
+  );
+  await screen.findByText("⚠ alarm · 0.5 s, 2 retries");
+  const edge = document.querySelector('[data-id="orders-inventory"]');
+  expect(edge).toHaveClass("alarm");
+  expect(
+    document.querySelector<SVGPathElement>('[data-id="orders-inventory"] path')?.style.stroke,
+  ).toBe("var(--fault)");
+  expect(document.querySelector('[data-id="gateway-orders"]')).not.toHaveClass("alarm");
+});

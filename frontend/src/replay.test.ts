@@ -33,3 +33,13 @@ test("the lab of a run is built from the links it recorded", () => {
   expect(lab.services.map((s) => s.name)).toEqual(["gateway", "orders", "inventory"]);
   expect(lab.links.map((l) => l.name)).toEqual(["gateway-orders", "orders-inventory"]);
 });
+
+test("a replay shows only the alarms raised so far (#257)", () => {
+  const alarms = [
+    { at_s: 1, link: null },
+    { at_s: 6.2, link: "orders-inventory" },
+  ];
+  const withAlarms = { ...run, alarms };
+  expect(replayed(withAlarms, 3).alarms).toEqual([alarms[0]]);
+  expect(replayed(withAlarms, 7).alarms).toEqual(alarms);
+});

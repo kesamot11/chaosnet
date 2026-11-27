@@ -186,3 +186,27 @@ test("an experiment from before #185 says its settings were not recorded (Tomá�
   show(experiment({ topology: null }));
   expect(screen.getByText("Settings were not recorded for this experiment.")).toBeInTheDocument();
 });
+
+test("the alarm says in words which link the model names, and since when (#257)", () => {
+  const alarms = [
+    { at_s: 1, link: null },
+    { at_s: 11.2, link: "orders-inventory" },
+  ];
+  show(experiment({ alarms }));
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "⚠ Model: fault on orders → inventory, since 11 s into the run",
+  );
+});
+
+test("no fault seen, or the run is over: no alarm (#257)", () => {
+  show(experiment({ alarms: [{ at_s: 1, link: null }] }));
+  expect(screen.queryByText(/Model:/)).toBeNull();
+  const alarms = [{ at_s: 11, link: "orders-inventory" }];
+  show(experiment({ state: "completed", alarms }));
+  expect(screen.queryByText(/Model:/)).toBeNull();
+});
+
+test("a lab or load the model never saw: it says so instead of guessing (#257, #273)", () => {
+  show(experiment({ alarms: null }));
+  screen.getByText("No alarm: the model only knows the recorded lab at 20 req/s.");
+});

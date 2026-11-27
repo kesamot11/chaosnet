@@ -9,7 +9,7 @@ from fakes import API, LINK, FakeToxiproxy, Lab
 
 from chaosnet.experiments import State
 from chaosnet.faults import FaultDriver
-from chaosnet.runner import Runner
+from chaosnet.runner import Runner, Watch
 from chaosnet.store import Store
 
 SPEC: dict[str, Any] = {
@@ -28,14 +28,24 @@ def store(tmp_path: Path) -> Iterator[Store]:
 
 
 def run(
-    store: Store, lab: Lab, spec: dict[str, Any] = SPEC, abort_after_s: float | None = None
+    store: Store,
+    lab: Lab,
+    spec: dict[str, Any] = SPEC,
+    abort_after_s: float | None = None,
+    watch: Watch | None = None,
 ) -> int:
     exp = store.create(spec["name"], spec)
 
     async def go() -> None:
         async with httpx.AsyncClient(transport=httpx.MockTransport(lab.toxiproxy.handle)) as c:
             runner = Runner(
-                store, FaultDriver(c, API), lab.measure, lab.heartbeat, heartbeat_interval_s=0.01
+                store,
+                FaultDriver(c, API),
+                lab.measure,
+                lab.heartbeat,
+                watch=watch,
+                heartbeat_interval_s=0.01,
+                watch_interval_s=0.01,
             )
             task = asyncio.create_task(runner.run(exp.id))
             if abort_after_s is not None:
@@ -110,3 +120,28 @@ def test_error_in_baseline_never_adds_a_fault(store: Store) -> None:
     exp = store.get(run(store, lab))
     assert exp.state == State.FAILED
     assert lab.toxiproxy.requests == []  # Toxiproxy was never called
+
+
+def test_the_alarm_is_stored_each_time_it_changes(store: Store) -> None:
+    answers = iter([None, None, LINK, LINK, LINK, None])
+
+    async def watch() -> str | None:
+        return next(answers, None)
+
+    alarms = store.get(run(store, Lab(FakeToxiproxy()), watch=watch)).alarms
+    assert alarms is not None
+    assert [a["link"] for a in alarms] == [None, LINK, None]
+    assert [a["at_s"] for a in alarms] == sorted(a["at_s"] for a in alarms)
+
+
+def test_a_failing_alarm_never_stops_the_experiment(store: Store) -> None:
+    async def watch() -> str | None:
+        raise httpx.ConnectError("prometheus is down")
+
+    exp = store.get(run(store, Lab(FakeToxiproxy()), watch=watch))
+    assert exp.state == State.COMPLETED
+    assert exp.alarms == []  # watched, but it never answered
+
+
+def test_without_a_watch_nothing_is_stored(store: Store) -> None:
+    assert store.get(run(store, Lab(FakeToxiproxy()))).alarms is None

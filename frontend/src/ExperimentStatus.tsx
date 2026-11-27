@@ -1,4 +1,5 @@
 import {
+  alarmNow,
   DEMO,
   END_STATES,
   type Experiment,
@@ -44,6 +45,22 @@ function PhaseBar({ experiment }: { experiment: Experiment }) {
   );
 }
 
+/** What the model says now (#257), in words too: colour alone is not enough. */
+function AlarmLine({ experiment }: { experiment: Experiment }) {
+  if (END_STATES.has(experiment.state)) return null;
+  if (experiment.alarms === null) {
+    return <p>No alarm: the model only knows the recorded lab at 20 req/s.</p>;
+  }
+  const link = alarmNow(experiment);
+  if (link === null) return null; // no fault seen: nothing (#257)
+  const since = experiment.alarms?.at(-1)?.at_s ?? 0;
+  return (
+    <p className="alarm-line" role="status">
+      ⚠ Model: fault on {link.replace("-", " → ")}, since {Math.round(since)} s into the run
+    </p>
+  );
+}
+
 /** State, per-phase results and verdict of one experiment (#78); contract in the tests. */
 export function ExperimentStatus({ experiment, unreachable, onAbort }: Props) {
   const n = PHASES.indexOf(experiment.state as Phase) + 1;
@@ -58,6 +75,7 @@ export function ExperimentStatus({ experiment, unreachable, onAbort }: Props) {
         </p>
       )}
       {n > 0 && <PhaseBar experiment={experiment} />}
+      <AlarmLine experiment={experiment} />
       {!DEMO && !END_STATES.has(experiment.state) && (
         <button type="button" onClick={onAbort}>
           Abort

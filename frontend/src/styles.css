@@ -12,6 +12,7 @@
   --main-hover: #c8a8ff;
   --on-main: #1e0f3d;
   --fault: #e879b9;
+  --alarm: #f5a524; /* what the model thinks, not what was done (#257, Tomáš) */
   --ok: #7fd4a8;
   --bad: #f08a8a;
   --radius: 8px;
@@ -522,4 +523,14 @@ progress {
   position: absolute; /* its size never pushes the plot's: no resize loop */
   inset: 0;
   overflow: visible;
+}
+
+/* The live alarm (#257): an orange label beside the link, so the fault's magenta line stays. */
+.react-flow__edge.alarm .react-flow__edge-text {
+  fill: var(--alarm);
+  font-weight: 600;
+}
+
+.alarm-line {
+  color: var(--alarm);
 }
