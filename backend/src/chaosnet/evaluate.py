@@ -10,14 +10,25 @@ from collections.abc import Callable
 from typing import Any
 
 from sklearn.model_selection import GroupKFold  # pyright: ignore[reportMissingTypeStubs]
+from sklearn.tree import (  # pyright: ignore[reportMissingTypeStubs]
+    DecisionTreeClassifier,
+    export_text,  # pyright: ignore[reportUnknownVariableType]
+)
 
-from chaosnet.dataset import LINKS
+from chaosnet.dataset import FEATURES, LINKS
 
 Row = dict[str, Any]
 Detector = Callable[[Row], str | None]  # a second → the link it blames, None when all is well
 
 P95_LIMIT_MS = 100  # Tomáš: about 3× the highest normal p95 (33 ms), so noise never alarms
 FAILED = ["http_error", "timeout", "connection_error", "rejected"]  # rejected: an open breaker
+DEPTH = 4  # EXP-011: chosen before measuring, never tuned, so the tree stays readable
+NONE = "none"  # the tree's class for a second without a fault
+
+
+def held_out(row: Row) -> bool:
+    """Bandwidth 16 never trains the tree, only tests it (Tomáš, EXP-011)."""
+    return row["kind"] == "bandwidth" and row["strength"] == "16"
 
 
 def folds(rows: list[Row], k: int = 5) -> list[tuple[list[int], list[int]]]:
@@ -53,6 +64,25 @@ def rule(row: Row) -> str | None:
     return None
 
 
+def tree(rows: list[Row]) -> DecisionTreeClassifier:
+    """A decision tree trained on these seconds: their numbers → no fault or the link."""
+    model = DecisionTreeClassifier(max_depth=DEPTH, random_state=0)
+    x = [[number(r, c) for c in FEATURES] for r in rows]
+    model.fit(x, [r["fault_link"] or NONE for r in rows])  # pyright: ignore[reportUnknownMemberType]
+    return model
+
+
+def tree_answers(rows: list[Row]) -> Detector:
+    """The tree's answer for every second, each from a tree that never saw its run."""
+    answers: dict[int, str | None] = {}
+    for train, test in folds(rows):
+        model = tree([rows[i] for i in train if not held_out(rows[i])])
+        x = [[number(rows[i], c) for c in FEATURES] for i in test]
+        for i, link in zip(test, model.predict(x), strict=True):  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+            answers[id(rows[i])] = None if link == NONE else str(link)
+    return lambda row: answers[id(row)]
+
+
 def measure(rows: list[Row], detect: Detector) -> dict[str, float]:
     """The four numbers of ADR-013 (decision 6) for a detector on these rows."""
     alarms = [(r, link) for r in rows if (link := detect(r)) is not None]
@@ -81,5 +111,17 @@ def main() -> None:
     path = sys.argv[1] if len(sys.argv) > 1 else "../data/runs.csv"
     with open(path, newline="") as f:
         rows = list(csv.DictReader(f))
-    for name, value in measure(rows, rule).items():
-        print(f"{name:28} {value:.2f}" if isinstance(value, float) else f"{name:28} {value}")
+    detectors: dict[str, Detector] = {"rule": rule, "tree": tree_answers(rows)}
+    scores = {name: measure(rows, d) for name, d in detectors.items()}
+    print(f"{'':28} {'rule':>6} {'tree':>6}")
+    for metric in scores["rule"]:
+        values = (scores[n][metric] for n in detectors)
+        print(f"{metric:28}", *(f"{v:6.2f}" if isinstance(v, float) else f"{v:6}" for v in values))
+    print("\nruns found, of 6 per fault")
+    for kind, strength in sorted({(r["kind"], r["strength"]) for r in rows}):
+        runs = [r for r in rows if r["kind"] == kind and r["strength"] == strength]
+        found = [6 - int(measure(runs, d)["runs never detected"]) for d in detectors.values()]
+        note = "  (held out)" if held_out(runs[0]) else ""
+        print(f"{kind + ' ' + strength:28}", *(f"{n:6}" for n in found), note)
+    print("\nthe tree trained on every run but the held-out (the scores come from 5 fold trees):")
+    print(export_text(tree([r for r in rows if not held_out(r)]), feature_names=FEATURES))
