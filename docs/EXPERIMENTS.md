@@ -740,3 +740,67 @@ second 2 on.
   - Then one trial call every 5 s.
   - It is the same 126 attempts as EXP-006: the initial flood a breaker cannot stop
     (Sprint 6), now seen per second.
+
+## EXP-011: does a model find faults the rule misses? (#256)
+
+**Question:** on the labelled runs (#254), does a model find a fault and its link better
+than the rule (#255)? If it does not, ML did not pay off here and does not ship
+(ADR-013, decision 3).
+
+**The rule, already measured** (#255): the deepest link whose p95 is over 100 ms or that
+had any failed attempt. On `data/runs.csv` (54 runs, 1,944 seconds):
+
+| precision | recall | detection delay (median) | runs never detected | root-cause accuracy |
+|---|---|---|---|---|
+| 0.90 | 0.66 | 0 s | 18 of 54 | 0.99 |
+
+- The 18 runs are latency 25, bandwidth 64 and bandwidth 16 (3 faults × 2 links × 3
+  repeats): their p95 stays under 100 ms.
+- All 63 false alarms are in the first 2 s of recover: the `rate(...[3s])` window still
+  holds seconds of inject.
+
+**Setup:**
+
+- Data: `data/runs.csv`, unchanged.
+- Model: one decision tree (scikit-learn's `DecisionTreeClassifier`), at most 4 levels
+  deep, fixed seed. Three classes: no fault, `gateway-orders`, `orders-inventory`. It
+  answers both questions at once and returns what the rule returns (a link or none), so
+  `measure()` scores both the same way. A tree is a learned rule: it is printed in the
+  results, so its limits can be compared with the rule's 100 ms.
+- **This tree is the only model tried on these test runs.** If it loses, EXP-011 says ML
+  did not pay off; another model (e.g. a random forest) is a new experiment on newly
+  recorded runs.
+- Features: every number of the second for both links (attempts by outcome, p50, p95);
+  an empty cell is 0.
+- Split: `folds()`, 5 folds by run, the same test runs for the rule and the model.
+- **Bandwidth 16 is held out:** its runs are removed from training in every fold, but
+  stay in the test. Its recall is reported on its own.
+
+**Prediction (Tomáš, 2026-11-27, before any model was trained, translated from Czech):**
+the model finds **8 of the 9 faults**; it misses only **bandwidth 64**.
+
+*How this came about:*
+
+- Claude showed the p95 of the three faults the rule misses next to each link's normal
+  p95 (gateway-orders: median 20 ms, max 25 ms; orders-inventory: median 8.5 ms, max
+  32.5 ms). Tomáš answered that latency 25 (~98 ms) and bandwidth 16 (~48 ms) can be
+  told from normal, bandwidth 64 (~23 ms) cannot.
+- He chose bandwidth 16 as the held-out fault: it sits in the gap between normal and the
+  rule's 100 ms, where the model has to win. The model still sees bandwidth 64 and 4,
+  so this tests a new strength of a known fault, not a new kind of fault.
+- He first wanted two models (is there a fault; on which link). One model with a "no
+  fault" class answers both and plugs into `measure()` as it is, so he agreed. He
+  raised that the links must not be hard-coded: the classes come from the labels, but a
+  new link still needs new runs and training, in either design.
+- The model: Claude proposed a random forest; Tomáš asked about logistic regression,
+  then about one tree. One tree won because it can be read whole. Claude then proposed
+  trying a forest if the tree lost; Tomáš pointed out that this would be tuning on the
+  test runs, so only the tree is tried here.
+
+**Risks known before measuring:**
+
+- **A straw-man rule:** latency 25 and bandwidth 16 are also above every normal p95,
+  so a rule with a limit of ~40 ms would catch them too. If the model wins only there,
+  the 100 ms limit, not the model, may be why.
+- The model is trained and tested on one lab. A new link or a new topology means new
+  runs and training again.
