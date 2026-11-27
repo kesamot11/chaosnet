@@ -7,6 +7,8 @@
 - An error ends the experiment as ``failed`` with a reason; cancelling the task (abort)
   ends it as ``aborted``.
 - Heartbeats go to the watchdog while a fault is active (ADR-001, layer 3).
+- The live alarm (#257) watches every second of all three phases, when the model knows
+  the lab; each change is stored with the experiment.
 """
 
 import asyncio
@@ -22,6 +24,8 @@ from chaosnet.store import RUNNING, Store
 # Runs load for the given number of seconds and returns the load generator summary.
 Measure = Callable[[float], Awaitable[dict[str, Any]]]
 Heartbeat = Callable[[], Awaitable[None]]
+# The live alarm's answer for the lab right now: the link it names, None when all is well.
+Watch = Callable[[], Awaitable[str | None]]
 
 
 class Runner:
@@ -32,16 +36,24 @@ class Runner:
         measure: Measure,
         heartbeat: Heartbeat,
         *,
+        watch: Watch | None = None,
         heartbeat_interval_s: float = 1.0,
+        watch_interval_s: float = 1.0,  # the step the tree was trained on (#254)
     ) -> None:
         self.store = store
         self.driver = driver
         self.measure = measure
         self.heartbeat = heartbeat
         self.heartbeat_interval_s = heartbeat_interval_s
+        self.watch = watch
+        self.watch_interval_s = watch_interval_s
 
     async def run(self, experiment_id: int) -> None:
         spec = ExperimentSpec.model_validate(self.store.get(experiment_id).spec)
+        watching = None
+        if self.watch:
+            self.store.save_alarms(experiment_id, [])  # watched, nothing yet: before any poll
+            watching = asyncio.create_task(self._alarms(experiment_id))
         try:
             self.store.set_state(experiment_id, State.BASELINE)
             summary = await self.measure(spec.phases_s.baseline)
@@ -62,6 +74,9 @@ class Runner:
             raise
         except Exception as e:
             self.store.set_state(experiment_id, State.FAILED, reason=f"{type(e).__name__}: {e}")
+        finally:
+            if watching:
+                watching.cancel()
 
     async def _inject(self, experiment_id: int, spec: ExperimentSpec) -> None:
         """Measure with the fault active; the fault window equals the measurement window.
@@ -89,6 +104,22 @@ class Runner:
             assert fault.kbps is not None
             return await self.driver.add_bandwidth(fault.link, fault.kbps, fault.direction)
         return await self.driver.add_reset_peer(fault.link, fault.direction)
+
+    async def _alarms(self, experiment_id: int) -> None:
+        """Ask the alarm every interval until cancelled; store it each time it changes."""
+        assert self.watch is not None
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        alarms: list[dict[str, str | float | None]] = []
+        while True:
+            await asyncio.sleep(self.watch_interval_s)
+            try:
+                link = await self.watch()
+            except Exception:
+                continue  # Prometheus being down must not stop the experiment
+            if not alarms or alarms[-1]["link"] != link:
+                alarms.append({"at_s": round(loop.time() - start, 1), "link": link})
+                self.store.save_alarms(experiment_id, alarms)
 
     async def _heartbeats(self) -> None:
         """Send a heartbeat every interval until cancelled; a failed one is not fatal."""

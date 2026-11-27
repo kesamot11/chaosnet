@@ -20,6 +20,7 @@ import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException
 
+from chaosnet import alarm
 from chaosnet.experiments import ExperimentSpec, LoadSpec, State
 from chaosnet.fault_cli import send_heartbeat
 from chaosnet.faults import FaultDriver, FaultError
@@ -145,6 +146,7 @@ async def serve() -> None:
     target = os.environ.get("TARGET_URL", "http://127.0.0.1:8080/orders")
     toxiproxy = os.environ.get("TOXIPROXY_URL", "http://127.0.0.1:8474")
     watchdog = os.environ.get("WATCHDOG_URL", "http://127.0.0.1:8475")
+    prometheus = os.environ.get("PROMETHEUS_URL", "http://127.0.0.1:9090")
     port = int(os.environ.get("CHAOSNET_PORT", "8476"))
     max_in_flight = 500  # loadgen CLI default
 
@@ -158,6 +160,14 @@ async def serve() -> None:
 
             async def heartbeat() -> None:
                 await send_heartbeat(control, watchdog)
+
+            model = alarm.train()  # under a second; again for a changed lab is #272
+
+            async def watch() -> str | None:
+                return alarm.answer(model, await alarm.now(control, prometheus))
+
+            path = Path(os.environ.get("CHAOSNET_TOPOLOGY", LAB_TOPOLOGY))
+            lab = Lab(path, compose_up)
 
             def make_runner(load: LoadSpec) -> Runner:
                 async def measure(seconds: float) -> dict[str, Any]:
@@ -173,10 +183,10 @@ async def serve() -> None:
                     )
                     return summarize(samples, rate=load.rate, duration_s=seconds)
 
-                return Runner(store, driver, measure, heartbeat)
+                links = {link.name for link in lab.topology.links}
+                known = alarm.knows(links, load.rate)
+                return Runner(store, driver, measure, heartbeat, watch=watch if known else None)
 
-            path = Path(os.environ.get("CHAOSNET_TOPOLOGY", LAB_TOPOLOGY))
-            lab = Lab(path, compose_up)
             app = create_app(store, make_runner, lab, driver)
             # The file is the truth: bring the lab to it, also after a crash mid-apply (#191).
             startup = asyncio.create_task(lab.apply(None))

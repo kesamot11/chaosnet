@@ -54,6 +54,7 @@ def test_the_topology_is_stored_and_old_databases_get_the_column(tmp_path: Path)
 
     with Store(db) as store:
         assert store.get(1).topology is None  # not recorded back then
+        assert store.get(1).alarms is None  # nor watched (#257)
         lab = {"version": 1, "services": [], "links": [{"from": "a", "to": "b"}]}
         exp = store.create("new", SPEC, lab)
     with Store(db) as again:
@@ -114,3 +115,13 @@ def test_list_is_newest_first_and_verdict_is_stored(store: Store) -> None:
 def test_unknown_experiment(store: Store) -> None:
     with pytest.raises(KeyError, match="no experiment 42"):
         store.get(42)
+
+
+def test_the_alarms_are_stored_with_the_experiment(tmp_path: Path) -> None:
+    alarms = [{"at_s": 0.0, "link": None}, {"at_s": 11.2, "link": "orders-inventory"}]
+    with Store(tmp_path / "chaosnet.db") as store:
+        exp = store.create("new", SPEC)
+        assert exp.alarms is None  # not watched (yet)
+        store.save_alarms(exp.id, alarms)
+    with Store(tmp_path / "chaosnet.db") as again:
+        assert again.get(exp.id).alarms == alarms

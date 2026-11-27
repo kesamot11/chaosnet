@@ -114,7 +114,19 @@ export type Experiment = {
   // The lab it ran on (#185); null for experiments from before it was recorded.
   topology: { links: LinkSettings[] } | null;
   created_at: string; // ISO 8601, when it was started
+  // The live alarm (#257): each change, seconds since baseline began. null: the model doesn't
+  // know the lab or the load; missing: recorded before #257.
+  alarms?: Alarm[] | null;
 };
+
+/** One change of the live alarm (#257): from `at_s` on, the model names `link` (null: no fault). */
+export type Alarm = { at_s: number; link: string | null };
+
+/** The link the model names right now, while the experiment runs; null otherwise. */
+export function alarmNow(experiment: Experiment | null): string | null {
+  if (!experiment || END_STATES.has(experiment.state)) return null;
+  return experiment.alarms?.at(-1)?.link ?? null;
+}
 
 /** The controller's answer to a start or an abort. A refusal or no controller is an answer too. */
 export type Answer = { ok: true; experiment: Experiment } | { ok: false; reason: string };

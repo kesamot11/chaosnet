@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS experiments (
     verdict    TEXT,                       -- {"passed": ..., "reasons": [...]}, as JSON
     reason     TEXT,                       -- why it failed or was aborted
     topology   TEXT,                       -- the lab it ran on, as JSON; NULL before #185
+    alarms     TEXT,                       -- the live alarm's changes, as JSON; NULL: not watched
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 )
@@ -49,6 +50,9 @@ class Experiment:
     # The lab it ran on (#185), so results of different settings can be told apart;
     # None for experiments from before it was recorded.
     topology: dict[str, Any] | None = None
+    # The live alarm (#257): every change, [{"at_s": seconds since baseline began, "link":
+    # the link it names or None}]. None when the model doesn't know the lab or the load.
+    alarms: list[dict[str, Any]] | None = None
 
 
 def now() -> str:
@@ -60,10 +64,12 @@ class Store:
         self.db = sqlite3.connect(path)
         self.db.row_factory = sqlite3.Row
         self.db.execute(SCHEMA)
-        # A database from before #185 has no topology column: add it, its rows stay NULL.
+        # A database from before #185 (#257) has no topology (alarms) column: add it, its
+        # rows stay NULL.
         columns = {row["name"] for row in self.db.execute("PRAGMA table_info(experiments)")}
-        if "topology" not in columns:
-            self.db.execute("ALTER TABLE experiments ADD COLUMN topology TEXT")
+        for column in ("topology", "alarms"):
+            if column not in columns:
+                self.db.execute(f"ALTER TABLE experiments ADD COLUMN {column} TEXT")
         self.db.commit()
 
     def close(self) -> None:
@@ -125,6 +131,9 @@ class Store:
         payload = {"passed": verdict.passed, "reasons": verdict.reasons}
         self._update(experiment_id, verdict=json.dumps(payload))
 
+    def save_alarms(self, experiment_id: int, alarms: list[dict[str, Any]]) -> None:
+        self._update(experiment_id, alarms=json.dumps(alarms))
+
     def _update(self, experiment_id: int, **columns: Any) -> None:
         columns["updated_at"] = now()
         assignments = ", ".join(f"{c} = ?" for c in columns)  # column names are ours, not input
@@ -148,4 +157,5 @@ def to_experiment(row: sqlite3.Row) -> Experiment:
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         topology=json.loads(row["topology"]) if row["topology"] else None,
+        alarms=json.loads(row["alarms"]) if row["alarms"] else None,
     )

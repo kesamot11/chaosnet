@@ -29,6 +29,7 @@ type Props = {
   onConnect?: (from: string, to: string) => void;
   faulted?: string | null; // the link whose fault is active now, drawn in magenta (#206)
   hint?: string | null; // the link that blinks: click me (demo, #259)
+  alarm?: string | null; // the link the model names now, labelled in orange (#257)
 };
 
 /**
@@ -45,6 +46,7 @@ export function TopologyView({
   onConnect,
   faulted = null,
   hint = null,
+  alarm = null,
 }: Props) {
   // While a node is dragged, React Flow moves it in this state; a new topology (a save,
   // a rollback) replaces it.
@@ -58,9 +60,17 @@ export function TopologyView({
     target: link.to,
     // the services in between, where they are now (also while one is dragged): it goes around them
     data: { services: boxes(nodes, link) },
-    label: link.available ? `${link.timeout_s} s, ${link.max_retries} retries` : "no proxy",
+    label: [
+      link.name === alarm && "⚠ alarm",
+      link.available ? `${link.timeout_s} s, ${link.max_retries} retries` : "no proxy",
+    ]
+      .filter(Boolean)
+      .join(" · "),
     style: edgeStyle(link, link.name === selected || link.name === hint, link.name === faulted),
-    className: link.name === hint ? "hint" : undefined,
+    // the line stays the fault's: the alarm is what the model thinks, a label beside it (Tomáš)
+    className:
+      [link.name === hint && "hint", link.name === alarm && "alarm"].filter(Boolean).join(" ") ||
+      undefined,
   }));
 
   return (

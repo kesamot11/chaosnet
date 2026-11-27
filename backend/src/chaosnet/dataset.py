@@ -39,6 +39,13 @@ FEATURES = [f"{link} {name}" for link in LINKS for name in [*OUTCOMES, "p50_ms",
 COLUMNS = ["run", "second", "phase", "kind", "strength", "fault", "fault_link", *FEATURES]
 
 
+def column(name: str, metric: dict[str, str]) -> str:
+    """The column of one Prometheus series: its link and what it measures. The live alarm
+    (#257) names its numbers here too, so they match the recorded ones."""
+    link = metric["hop"].replace("->", "-")
+    return f"{link} {metric['outcome'] if name == 'attempts' else name}"
+
+
 def run_one(client: httpx.Client, link: str, fault: dict[str, Any]) -> tuple[int, dict[str, float]]:
     """Start one experiment and wait for its end; return its id and when each phase began."""
     spec = {
@@ -73,10 +80,8 @@ def features(client: httpx.Client, start: float, end: float) -> dict[int, dict[s
         )
         res.raise_for_status()
         for series in res.json()["data"]["result"]:
-            link = series["metric"]["hop"].replace("->", "-")
-            column = f"{link} {series['metric']['outcome'] if name == 'attempts' else name}"
             for t, value in series["values"]:
-                seconds.setdefault(int(t), {})[column] = float(value)
+                seconds.setdefault(int(t), {})[column(name, series["metric"])] = float(value)
     return seconds
 
 

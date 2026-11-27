@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   abortExperiment,
+  alarmNow,
   DEMO,
   END_STATES,
   fetchExperiment,
@@ -188,6 +189,7 @@ export function App() {
             faulted={experiment?.state === "inject" ? experiment.spec.fault.link : null}
             // the demo's first step: the link with recorded runs blinks until a link is clicked (#259)
             hint={DEMO && selected === null ? (runs[0]?.link ?? null) : null}
+            alarm={alarmNow(experiment)}
           />
           {!DEMO && (
             <Drawer side="left" label="Editor" open={open.left} onToggle={() => toggle("left")}>

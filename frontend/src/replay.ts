@@ -12,7 +12,10 @@ export function replayed(run: Experiment, elapsed_s: number): Experiment {
   const results: Experiment["results"] = {};
   for (const phase of PHASES) {
     end += run.spec.phases_s[phase];
-    if (elapsed_s < end) return { ...run, state: phase, results, verdict: null, reason: null };
+    if (elapsed_s < end) {
+      const alarms = run.alarms?.filter((a) => a.at_s <= elapsed_s); // only the ones so far
+      return { ...run, state: phase, results, verdict: null, reason: null, alarms };
+    }
     const measured = run.results[phase];
     if (measured) results[phase] = measured;
   }
